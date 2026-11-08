@@ -1,0 +1,6 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\..\FrameXML\UI.xsd">
+	<!-- The one pin of the world in one piece: over the whole map, holding the zones' pictures; never the mouse's
+	(the map engine calls its OnLoad). -->
+	<Frame name="WandererMapsWorldTemplate" mixin="WandererMapsWorldPinMixin" enableMouse="false" virtual="true">
+	</Frame>
+</Ui>

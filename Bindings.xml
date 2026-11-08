@@ -1,0 +1,8 @@
+<Bindings>
+	<Binding name="WANDERERMAPS_TOGGLE" header="WANDERERMAPS">
+		WandererMaps_Toggle()
+	</Binding>
+	<Binding name="WANDERERMAPS_HERE">
+		WandererMaps_Here()
+	</Binding>
+</Bindings>

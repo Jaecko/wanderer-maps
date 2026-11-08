@@ -1,0 +1,36 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\..\FrameXML\UI.xsd">
+	<!-- A pin of Wanderer Maps on the world map: a mark, a number for a step of the route. -->
+	<Frame name="WandererMapsPinTemplate" mixin="WandererMapsPinMixin" enableMouse="true" virtual="true">
+		<Size x="20" y="20"/>
+		<Layers>
+			<Layer level="ARTWORK">
+				<Texture parentKey="icon">
+					<Size x="20" y="20"/>
+					<Anchors>
+						<Anchor point="BOTTOM" relativePoint="CENTER" x="0" y="-4"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+			<Layer level="OVERLAY">
+				<FontString parentKey="number" inherits="GameFontNormalSmall" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="CENTER" relativeKey="$parent.icon" relativePoint="CENTER" x="0" y="3"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<!-- (the map engine calls the mixin's OnLoad and wires OnEnter, OnLeave and the mouse buttons itself) -->
+	</Frame>
+	<!-- The route's dotted line: one pin over the whole map, never the mouse's. -->
+	<Frame name="WandererMapsRouteTemplate" mixin="WandererMapsRoutePinMixin" enableMouse="false" virtual="true">
+	</Frame>
+	<!-- A service of a town on the world map (an inn, a flight master, a mailbox...): the game's own mark, small. -->
+	<Frame name="WandererMapsServiceTemplate" mixin="WandererMapsServicePinMixin" enableMouse="true" virtual="true">
+		<Size x="16" y="16"/>
+		<Layers>
+			<Layer level="ARTWORK">
+				<Texture parentKey="icon" setAllPoints="true"/>
+			</Layer>
+		</Layers>
+	</Frame>
+</Ui>
