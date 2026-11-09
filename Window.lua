@@ -285,7 +285,7 @@ function ns.Init()
 		slash = "/wmaps",
 		title = L.ADDON,
 		news = L.NEWS_LINES,
-		defaults = { enabled = true, followGame = true, gps = true, boats = true, gamePin = true, minimap = true, arrow = true, arrowQuiet = false,
+		defaults = { enabled = true, followGame = true, gps = true, boats = true, gamePin = true, minimap = true, arrow = true, arrowQuiet = true,
 			world = true, unexplored = true, explored = true, zoneFacts = true, services = false, flightNotice = false,
 			hearth = false, flightLine = true, corpse = true, noteRadius = 250 },
 		ranges = { ["maps.noteRadius"] = { 25, 250, 25 } },
