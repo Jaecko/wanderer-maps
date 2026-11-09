@@ -1,4 +1,4 @@
-# Wanderer Maps 1.2.1
+# Wanderer Maps 1.2.2
 
-### Changed
-- New characters start with an arrow that fades while they walk straight toward the point. Existing characters keep their settings.
+### Fixed
+- Clearing the route, or taking away its last step, now removes the arrow and the pin the route had placed. A pin placed by you or another addon stays on the map, and the arrow no longer follows it.

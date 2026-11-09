@@ -499,9 +499,22 @@ local function Create()
 	arrow:Hide()
 end
 
+-- The route emptied by you (cleared, its last step taken away): the way is over at once. The game's pin it had put
+-- goes with it; a pin that is someone else's stays on the map, without the arrow following it now.
+local hadStep = false
+local function ForgetWay()
+	local map, x, y = GamePin()
+	if not map then return end
+	ended = { map = map, x = x, y = y }
+	if placed and not ns.ForeignPin() then ClearGamePin() end
+end
+
 -- Shown or hidden as what is followed asks (the look runs while it is shown).
 function ns.RefreshArrow()
 	if not arrow then Create() end
+	local hasStep = ns.CurrentStep() ~= nil
+	if hadStep and not hasStep and not ending then ForgetWay() end
+	hadStep = hasStep
 	if ns.Followed() or ending or ns.Corpse() then
 		-- (the way's end goes on a moment: the look runs until the arrow is gone)
 		driver:Show()
