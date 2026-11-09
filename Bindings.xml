@@ -5,4 +5,7 @@
 	<Binding name="WANDERERMAPS_HERE">
 		WandererMaps_Here()
 	</Binding>
+	<Binding name="WANDERERMAPS_ATLAS">
+		WandererMaps_Atlas()
+	</Binding>
 </Bindings>

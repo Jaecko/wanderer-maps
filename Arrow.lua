@@ -254,7 +254,8 @@ local function ReachedPin(followed)
 	Skin.Play("confirm")
 	ending = { title = followed.title, at = GetTime() }
 	ended = { map = followed.map, x = followed.x, y = followed.y }
-	ClearGamePin()
+	-- (one Wanderer put there goes; yours, or another addon's, stays on the map, no longer followed)
+	if placed and not ns.ForeignPin() then ClearGamePin() end
 end
 
 -- From you to the point followed: the angle to turn (the arrow's rotation), the distance, in flight or not.
@@ -406,11 +407,9 @@ local function Look()
 	end
 end
 
--- The map of the point followed, opened (a click on the arrow when you are elsewhere; never in a fight).
+-- The map of the point followed, in the atlas (a click on the arrow when you are elsewhere).
 local function OpenMap(map)
-	if not map or InCombatLockdown() then return end
-	local open = _G.OpenWorldMap
-	if open then pcall(open, map) end
+	if map then ns.AtlasShow(map) end
 end
 
 local function Create()

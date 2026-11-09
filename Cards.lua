@@ -51,7 +51,9 @@ local function SaveNote(how)
 		ns.Changed()
 	else
 		place = ns.AddNote(card.map, card.x, card.y, title, card.sign)
-		if place then W.Print(L.ADDED_NOTE:format(place.title)) end
+		-- (full: said, and the card stays with what you wrote)
+		if not place then return end
+		W.Print(L.ADDED_NOTE:format(place.title))
 	end
 	Skin.Play("confirm")
 	card:Hide()

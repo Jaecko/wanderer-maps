@@ -135,6 +135,40 @@ local function ShowCount(map, kind)
 	text:Show()
 end
 
+local DrawPiece, DrawZone
+
+-- The land of a map on a target: the zones on a continent, on a zone what the game leaves out. whole: everything
+-- explored too (a view of ours, where nothing else draws it).
+function ns.DrawLand(target, map, kind, whole)
+	local settings = ns.Settings()
+	local types = Enum and Enum.UIMapType
+	if not (settings and map and types and ns.WORLD_PIECES) then return end
+	if kind == types.Continent and settings.world then
+		for zone in pairs(ns.WORLD_PIECES) do
+			local _, parent = MapType(zone)
+			if parent == map then DrawZone(target, zone, map, false) end
+		end
+	elseif kind == types.Zone and ns.WORLD_PIECES[map] and (settings.unexplored or whole) then
+		DrawZone(target, map, map, true, whole)
+	end
+end
+
+-- The pieces the game says are explored on a map the data does not know, drawn the same way.
+function ns.DrawExplored(target, map)
+	local layers = Safe(C_Map.GetMapArtLayers, map)
+	local layer = type(layers) == "table" and layers[1]
+	local list = Safe(C_MapExplorationInfo.GetExploredMapTextures, map)
+	if not (layer and Clean(layer.layerWidth) and type(list) == "table") then return end
+	local scaleX, scaleY = target.width / layer.layerWidth, target.height / layer.layerHeight
+	for _, info in ipairs(list) do
+		local piece = { Clean(info.offsetX), Clean(info.offsetY), Clean(info.textureWidth), Clean(info.textureHeight) }
+		if piece[1] and piece[2] and piece[3] and piece[4] and type(info.fileDataIDs) == "table" then
+			for _, file in ipairs(info.fileDataIDs) do piece[#piece + 1] = Clean(file) end
+			DrawPiece(target, piece, 0, 0, scaleX, scaleY, layer.tileWidth, layer.tileHeight, false)
+		end
+	end
+end
+
 -- The pin: one, over the whole map, holding the pictures -----------------------------------------------------
 
 WandererMapsWorldPinMixin = CreateFromMixins(MapCanvasPinMixin or {})
@@ -174,11 +208,10 @@ function WandererMapsWorldPinMixin:OnReleased()
 end
 
 -- One piece of a zone, its pictures laid as the game lays them (tiles of the layer's size, the last ones
--- cut to the piece), placed at (left, top) and grown by (scaleX, scaleY), on the canvas.
-function WandererMapsWorldPinMixin:DrawPiece(piece, left, top, scaleX, scaleY, tileWidth, tileHeight, unknown)
+-- cut to the piece), placed at (left, top) and grown by (scaleX, scaleY). target: Acquire() a texture, width, height.
+function DrawPiece(target, piece, left, top, scaleX, scaleY, tileWidth, tileHeight, unknown)
 	local width, height = piece[3], piece[4]
 	local wide, tall = math.ceil(width / tileWidth), math.ceil(height / tileHeight)
-	local canvas = self:GetMap()
 	for row = 1, tall do
 		local pixelsTall, fileTall = tileHeight, tileHeight
 		if row == tall then
@@ -197,11 +230,7 @@ function WandererMapsWorldPinMixin:DrawPiece(piece, left, top, scaleX, scaleY, t
 					fileWide = 16
 					while fileWide < pixelsWide do fileWide = fileWide * 2 end
 				end
-				local texture = self:Pool():Acquire()
-				if not texture.wandererMasked then
-					canvas:AddMaskableTexture(texture)
-					texture.wandererMasked = true
-				end
+				local texture = target.Acquire()
 				texture:SetSize(pixelsWide * scaleX, pixelsTall * scaleY)
 				texture:SetTexCoord(0, pixelsWide / fileWide, 0, pixelsTall / fileTall)
 				texture:SetPoint("TOPLEFT", left + (piece[1] + tileWidth * (column - 1)) * scaleX,
@@ -219,8 +248,9 @@ function WandererMapsWorldPinMixin:DrawPiece(piece, left, top, scaleX, scaleY, t
 	end
 end
 
--- A zone's pieces on the map shown: all of them on its continent, those not explored yet on its own map.
-function WandererMapsWorldPinMixin:DrawZone(zone, map, own)
+-- A zone's pieces on the map shown: all of them on its continent, those not explored yet on its own map
+-- (every one when nothing else draws what you explored: the atlas).
+function DrawZone(target, zone, map, own, whole)
 	local pieces = ns.WORLD_PIECES[zone]
 	local settings = ns.Settings()
 	local explored = Explored(zone, pieces)
@@ -232,15 +262,14 @@ function WandererMapsWorldPinMixin:DrawZone(zone, map, own)
 		local x0, x1, y0, y1 = Safe(C_Map.GetMapRectOnMap, zone, map)
 		x0, x1, y0, y1 = Clean(x0), Clean(x1), Clean(y0), Clean(y1)
 		if not (x0 and x1 and y0 and y1) or x1 <= x0 or y1 <= y0 then return end
-		local width, height = self:GetMap():DenormalizeHorizontalSize(1), self:GetMap():DenormalizeVerticalSize(1)
-		left, top = x0 * width, y0 * height
-		scaleX, scaleY = (x1 - x0) * width / layer.layerWidth, (y1 - y0) * height / layer.layerHeight
+		left, top = x0 * target.width, y0 * target.height
+		scaleX, scaleY = (x1 - x0) * target.width / layer.layerWidth, (y1 - y0) * target.height / layer.layerHeight
 	end
 	for _, piece in ipairs(pieces) do
 		local unknown = not explored[piece[5]]
 		-- (on its own map, the game draws the explored ones; elsewhere, the unexplored ones only when asked)
-		if (own and unknown) or (not own and (not unknown or settings.unexplored)) then
-			self:DrawPiece(piece, left, top, scaleX, scaleY, layer.tileWidth, layer.tileHeight, unknown)
+		if (own and (unknown or whole)) or (not own and (not unknown or settings.unexplored)) then
+			DrawPiece(target, piece, left, top, scaleX, scaleY, layer.tileWidth, layer.tileHeight, unknown)
 		end
 	end
 end
@@ -253,16 +282,16 @@ function WandererMapsWorldPinMixin:Refresh()
 	-- (the words beside the zone's name need no pieces)
 	ShowCount(map, kind)
 	if not (settings and settings.enabled and ns.WORLD_PIECES) then return end
-	local types = Enum and Enum.UIMapType
-	if not (map and types) then return end
-	if kind == types.Continent and settings.world then
-		for zone in pairs(ns.WORLD_PIECES) do
-			local _, parent = MapType(zone)
-			if parent == map then self:DrawZone(zone, map, false) end
+	local canvas = self:GetMap()
+	local target = { width = canvas:DenormalizeHorizontalSize(1), height = canvas:DenormalizeVerticalSize(1), Acquire = function()
+		local texture = self:Pool():Acquire()
+		if not texture.wandererMasked then
+			canvas:AddMaskableTexture(texture)
+			texture.wandererMasked = true
 		end
-	elseif kind == types.Zone and settings.unexplored and ns.WORLD_PIECES[map] then
-		self:DrawZone(map, map, true)
-	end
+		return texture
+	end }
+	ns.DrawLand(target, map, kind, false)
 end
 
 -- The provider --------------------------------------------------------------------------------------------
@@ -288,6 +317,7 @@ local function Provider()
 		-- (in a fight: the pieces put away, drawn again after it)
 		if InCombatLockdown() then
 			self:RemoveAllData()
+			if count then count:Hide() end
 			return U.AfterFight("world", ns.RefreshWorld)
 		end
 		self.pin:Refresh()
@@ -304,5 +334,14 @@ end
 function ns.InitWorld()
 	if not (WorldMapFrame and C_Map and C_MapExplorationInfo and CreateTexturePool) then return end
 	Provider()
-	ns.OnChanged(ns.RefreshWorld)
+	-- (only what changes the land: the rest of the addon changes often, and there are hundreds of pieces)
+	local drawn
+	ns.OnChanged(function()
+		local settings = ns.Settings()
+		local now = settings and (tostring(settings.enabled) .. tostring(settings.world) .. tostring(settings.unexplored)) or ""
+		if now ~= drawn then
+			drawn = now
+			ns.RefreshWorld()
+		end
+	end)
 end

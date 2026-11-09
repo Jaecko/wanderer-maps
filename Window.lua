@@ -287,7 +287,7 @@ function ns.Init()
 		news = L.NEWS_LINES,
 		defaults = { enabled = true, followGame = true, gps = true, boats = true, gamePin = true, minimap = true, arrow = true, arrowQuiet = true,
 			world = true, unexplored = true, explored = true, zoneFacts = true, services = false, flightNotice = false,
-			hearth = false, flightLine = true, corpse = true, noteRadius = 250 },
+			hearth = false, atlas = true, flightLine = true, corpse = true, noteRadius = 250 },
 		ranges = { ["maps.noteRadius"] = { 25, 250, 25 } },
 		-- (the flight line names the destination: Wanderer's travel card leaves it the title, keeps the fade and the camera)
 		takes = { flightCard = function()
@@ -334,6 +334,7 @@ function ns.Init()
 			o.Under(o.Checkbox("maps", "hearth", L.HEARTH_OPTION, L.HEARTH_OPTION_DESC, ns.Replan), gps, gpsOn)
 
 			o.Header(L.SECTION_WORLD_MAP)
+			Check("atlas", L.ATLAS_OPTION, L.ATLAS_OPTION_DESC, ns.AtlasPlaceKey)
 			Check("world", L.WORLD_OPTION, L.WORLD_OPTION_DESC, ns.RefreshWorld)
 			Check("unexplored", L.UNEXPLORED_OPTION, L.UNEXPLORED_OPTION_DESC, ns.RefreshWorld)
 			Check("explored", L.EXPLORED_OPTION, L.EXPLORED_OPTION_DESC, ns.RefreshWorld)
@@ -346,7 +347,16 @@ function ns.Init()
 		end,
 	})
 	SLASH_WANDERERMAPS1 = "/wmaps"
-	SlashCmdList.WANDERERMAPS = function() ns.Toggle() end
+	SLASH_WANDERERMAPS2 = "/watlas"
+	SlashCmdList.WANDERERMAPS = function(text)
+		text = (text or ""):lower()
+		if text:find("^%s*atlas%s*dump") then
+			ns.AtlasDump()
+			return W.Print(L.ATLAS_DUMP_DONE)
+		end
+		if text:find("^%s*atlas") then return ns.AtlasToggle() end
+		ns.Toggle()
+	end
 	ns.OnChanged(Draw)
 	ns.InitTransport()
 	ns.InitPins()
@@ -356,6 +366,7 @@ function ns.Init()
 	ns.InitWorld()
 	ns.InitArrow()
 	ns.InitMinimap()
+	ns.InitAtlas()
 	local events = CreateFrame("Frame")
 	for _, event in ipairs({ "QUEST_TURNED_IN", "QUEST_ACCEPTED" }) do pcall(events.RegisterEvent, events, event) end
 	events:SetScript("OnEvent", function(_, event, ...) QuestDone(event, ...) end)

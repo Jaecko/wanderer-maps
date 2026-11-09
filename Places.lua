@@ -489,10 +489,12 @@ local function NextOpen(route, from)
 	return nil
 end
 
--- The step reached: the next one not done followed; the last one reached ends the route.
+-- The step reached: done, the next one not done followed, one left behind earlier if none comes after; the
+-- route ends when none is left.
 function ns.NextStep()
 	local route = ns.Route()
-	local nextIndex = NextOpen(route, route.current)
+	if route.steps[route.current] then route.steps[route.current].done = true end
+	local nextIndex = NextOpen(route, route.current) or NextOpen(route, 0)
 	if nextIndex then
 		route.current = nextIndex
 	else

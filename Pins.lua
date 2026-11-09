@@ -117,7 +117,7 @@ function WandererMapsPinMixin:OnMouseClickAction(button)
 	-- (many notes of a zone: its map, where they show one by one)
 	if data.kind == "group" then
 		Skin.Play("click")
-		if WorldMapFrame and WorldMapFrame.SetMapID and not InCombatLockdown() then pcall(WorldMapFrame.SetMapID, WorldMapFrame, data.zone) end
+		ns.AtlasShow(data.zone)
 		return
 	end
 	local place = data.place
@@ -299,7 +299,8 @@ function ns.RefreshMapButton()
 		if not wanted then return end
 		local holder = WorldMapFrame.ScrollContainer or WorldMapFrame
 		mapButton = Skin.SmallButton(WorldMapFrame, "", function(self) ns.FilterCard(self) end, L.FILTER_TIP, 22)
-		mapButton:SetPoint("TOPLEFT", holder, "TOPLEFT", 8, -8)
+		-- (beside the game's own button in that corner)
+		mapButton:SetPoint("TOPLEFT", holder, "TOPLEFT", 44, -8)
 		mapButton:SetFrameStrata(WorldMapFrame:GetFrameStrata())
 		mapButton:SetFrameLevel(math.min(9000, (holder:GetFrameLevel() or 1) + 1500))
 	end
@@ -333,8 +334,14 @@ local function Provider()
 		for _, pin in ipairs(ns.NotePins(map)) do self:GetMap():AcquirePin(TEMPLATE, pin) end
 		local route = ns.Route()
 		local line = {}
+		-- (a step on another map cuts the line: never a straight stroke across what it skipped)
+		local function Flush()
+			if line[1] and (line[2] or line[1].current) then self:GetMap():AcquirePin(ROUTE_TEMPLATE, line) end
+			line = {}
+		end
 		for index, step in ipairs(route.steps) do
 			local x, y = ns.OnMap(step, map)
+			if not x and index >= route.current and not step.done then Flush() end
 			if x then
 				local current = index == route.current
 				self:GetMap():AcquirePin(TEMPLATE, { kind = "step", place = step, x = x, y = y, index = index, current = current })
@@ -342,7 +349,7 @@ local function Provider()
 				if index >= route.current and not step.done then line[#line + 1] = { x, y, current = current } end
 			end
 		end
-		if line[1] and (line[2] or line[1].current) then self:GetMap():AcquirePin(ROUTE_TEMPLATE, line) end
+		Flush()
 	end
 	WorldMapFrame:AddDataProvider(provider)
 	return provider
