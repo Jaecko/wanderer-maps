@@ -12,7 +12,7 @@
 ## Notes-zhCN: 世界地图上的分段路线与笔记，屏幕上指向当前路点的箭头；一键加入 Wanderer Quests 的地点。
 ## Notes-zhTW: 世界地圖上的分段路線與筆記，螢幕上指向目前路點的箭頭；一鍵加入 Wanderer Quests 的地點。
 ## Category: Map & Minimap
-## Version: 1.3.11
+## Version: 1.3.20
 ## Author: Jaekco
 ## IconTexture: Interface\Icons\INV_Misc_Map_01
 ## RequiredDeps: Wanderer

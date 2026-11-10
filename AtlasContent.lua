@@ -14,6 +14,10 @@ local PIN = 22
 local NEAR, CLOSE = 1.6, 2.5 -- the zooms where the small places, then their names, come
 local MAX_RESULTS, MAX_QUEST_ROWS, MAX_STEPS = 7, 11, 9
 local SEARCH_WIDTH, LEGEND_HEIGHT, LEGEND_GAP = 250, 26, 14
+local TABS_HEIGHT = 34
+local JOURNAL_ROW = 26
+local MAX_REWARDS, REWARD_SIZE = 7, 28
+local QUEST_TEXT_LINES = 9
 local HEADER_LEFT = 118 -- (the map's name, after the window's title)
 local DOT_GAP = 12
 local GRID_WIDE = 333 -- the zones' grid: cells across a map
@@ -46,12 +50,15 @@ local LAYERS = {
 	{ "poi", "ATLAS_POI", "Interface\\Icons\\INV_Misc_Flag_01", true },
 }
 
-local ui, frame
+local ui
+local DrawJournal, QuestText, DrawRewards, Pushable
 local pins, chosen, query = {}, nil, ""
 local index -- the search's places
 local arc = {} -- the line shown while a dock is under the mouse
 local zones -- where your quests' objectives lie: { wide, tall, cells = { cell -> { quest = true } }, quests = { quest -> { title, words } } }
 local hoveredZone -- the quests of the zone under the mouse
+local panelView = "map" -- what the panel shows when nothing is chosen: "map" (this map) or "journal" (all your quests)
+local journalOffset = 0
 
 local function Shown(key)
 	local db = ns.AtlasDb()
@@ -75,6 +82,13 @@ local function Far(map) return ns.FarMap(map) end
 local function QuestTitle(id)
 	local api = C_QuestLog and C_QuestLog.GetTitleForQuestID
 	return api and Clean(Safe(api, id)) or nil
+end
+
+-- (the game names a quest long after it left your log: your log says)
+local function QuestInLog(id)
+	local api = C_QuestLog and C_QuestLog.GetLogIndexForQuestID
+	if not api then return QuestTitle(id) ~= nil end
+	return Clean(Safe(api, id)) ~= nil
 end
 
 local function QuestDone(id)
@@ -350,7 +364,6 @@ local function Dress(pin, data)
 	icon:SetDesaturated(false)
 	icon:SetVertexColor(1, 1, 1, 1)
 	if data.step then
-		pin.wasStep = true
 		icon.wandererGold = nil
 		ns.StepIcon(icon, data.current)
 	elseif data.note then
@@ -433,7 +446,7 @@ function ns.AtlasPlacePins()
 	end
 	DrawRouteDots()
 	ns.AtlasPlaceZones()
-	ns.AtlasFollow()
+	ns.AtlasMoveMarks()
 end
 
 -- The pins of this map, drawn again.
@@ -700,7 +713,8 @@ function ns.AtlasHoverZone(x, y)
 		for _, word in ipairs(info.words) do lines[#lines + 1] = word end
 	end
 	lines[#lines + 1] = ns.TipLine(L.ATLAS_QUEST_OPEN, "blue")
-	ns.ShowTip(ui.clip, lines, "ANCHOR_CURSOR")
+	-- (the controller's cursor is not the mouse's: beside the map)
+	ns.ShowTip(ui.clip, lines, ns.AtlasPadCursor() and "ANCHOR_RIGHT" or "ANCHOR_CURSOR")
 end
 
 -- The zone under the mouse, lit (the game's own picture for it).
@@ -722,10 +736,18 @@ end
 -- You, your group, your corpse --------------------------------------------------------------------------------------
 
 local function PlaceMark(mark, x, y)
+	mark.mapX, mark.mapY = x, y
 	local cx, cy = ns.AtlasProject(x, y)
 	mark:ClearAllPoints()
 	mark:SetPoint("CENTER", ui.overlay, "TOPLEFT", cx, -cy)
 	mark:Show()
+end
+
+-- The marks where the canvas says (a pan or a zoom: where everyone stands is not read again).
+function ns.AtlasMoveMarks()
+	for _, mark in ipairs(ui.marks or {}) do
+		if mark.mapX and mark:IsShown() then PlaceMark(mark, mark.mapX, mark.mapY) end
+	end
 end
 
 local function Position(unit, map)
@@ -768,7 +790,7 @@ function ns.AtlasFollow()
 		cx, cy = Safe(corpse.GetXY, corpse)
 		cx, cy = Clean(cx), Clean(cy)
 	end
-	if InBounds(cx, cy) then PlaceMark(ui.corpse, cx, cy) else ui.corpse:Hide() end
+	if InBounds(cx, cy) and (cx ~= 0 or cy ~= 0) then PlaceMark(ui.corpse, cx, cy) else ui.corpse:Hide() end
 	-- Under the mouse: the zone, lit as the game lights it, and where.
 	if ui.overCanvas and ui.coords then
 		local _, _, mx, my = ns.AtlasCursor()
@@ -835,7 +857,7 @@ local function ClearPanel()
 	ui.about:SetText("")
 	ui.chip:Set(nil)
 	ui.chip2:Set(nil)
-	for _, button in ipairs({ ui.goButton, ui.addButton, ui.noteButton, ui.openButton, ui.backButton }) do button:Hide() end
+	for _, button in ipairs({ ui.goButton, ui.addButton, ui.noteButton, ui.openButton, ui.backButton, ui.shareButton, ui.abandonButton, ui.rewards, ui.journal }) do button:Hide() end
 end
 
 local function QuestRow(index_)
@@ -889,6 +911,188 @@ local function DrawOverview()
 	if shown == 0 then ui.objectives:SetText(L.ATLAS_NO_QUEST) end
 end
 
+-- The journal: every quest of yours, by zone, as the game's list has them --------------------------------------------
+
+local function QuestMapOf(id)
+	local map = GetQuestUiMapID and Clean(Safe(GetQuestUiMapID, id))
+	if map and map ~= 0 then return map end
+	local quests = _G.WandererQuests
+	return type(quests) == "table" and quests.QuestMap and quests.QuestMap(id) or nil
+end
+
+local function OpenJournalQuest(entry)
+	local map = QuestMapOf(entry.id)
+	if map and map ~= ns.AtlasMap() then ns.AtlasSetMap(map) end
+	local data = QuestOf({ quest = entry.id }) or { kind = "quest", quest = entry.id, title = entry.title, done = QuestDone(entry.id), noPlace = true }
+	ChoosePlace(data)
+	if not data.noPlace then ns.AtlasFocus(data.x, data.y) end
+end
+
+local function JournalEntries()
+	local out, log = {}, C_QuestLog
+	if not (log and log.GetNumQuestLogEntries and log.GetInfo) then return out end
+	for at = 1, Clean(Safe(log.GetNumQuestLogEntries)) or 0 do
+		local info = Safe(log.GetInfo, at)
+		if type(info) == "table" and not Clean(info.isHidden) then
+			local title = Clean(info.title)
+			if Clean(info.isHeader) then
+				out[#out + 1] = { header = title }
+			elseif title and Clean(info.questID) then
+				out[#out + 1] = { id = Clean(info.questID), title = title, level = Clean(info.level) }
+			end
+		end
+	end
+	return out
+end
+
+local function JournalRow(at)
+	local row = ui.journalRows[at]
+	if row then return row end
+	row = CreateFrame("Button", nil, ui.journal)
+	row:SetHeight(JOURNAL_ROW - 1)
+	row:SetPoint("TOPLEFT", 0, -(at - 1) * JOURNAL_ROW)
+	row:SetPoint("TOPRIGHT", -Skin.SCROLL_WIDTH - 2, -(at - 1) * JOURNAL_ROW)
+	row.ground = row:CreateTexture(nil, "BACKGROUND")
+	row.ground:SetAllPoints()
+	row.icon = row:CreateTexture(nil, "ARTWORK")
+	row.icon:SetSize(16, 16)
+	row.icon:SetPoint("LEFT", 4, 0)
+	row.count = Skin.Text(row, "GameTooltipTextSmall", "muted")
+	row.count:SetPoint("RIGHT", -4, 0)
+	row.text = Skin.Text(row, "GameTooltipTextSmall", "text")
+	row.text:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
+	row.text:SetPoint("RIGHT", row.count, "LEFT", -4, 0)
+	row.text:SetJustifyH("LEFT")
+	row.text:SetWordWrap(false)
+	row:SetScript("OnEnter", function(self) if self.entry and self.entry.id then self.ground:SetColorTexture(1, 1, 1, 0.08) end end)
+	row:SetScript("OnLeave", function(self) self.ground:SetColorTexture(1, 1, 1, self.entry and self.entry.id and 0.035 or 0) end)
+	row:SetScript("OnClick", function(self) if self.entry and self.entry.id then OpenJournalQuest(self.entry) end end)
+	ui.journalRows[at] = row
+	return row
+end
+
+function DrawJournal()
+	ui.journal:Show()
+	ui.kicker:SetText("")
+	ui.placeTitle:SetText("")
+	local entries = JournalEntries()
+	local room = ui.card:GetHeight() - TABS_HEIGHT
+	local fits = math.max(1, math.floor(room / JOURNAL_ROW))
+	journalOffset = math.max(0, math.min(journalOffset, #entries - fits))
+	for at = 1, math.max(fits, #ui.journalRows) do
+		local entry = at <= fits and entries[journalOffset + at] or nil
+		local row = (entry or ui.journalRows[at]) and JournalRow(at)
+		if row then
+			row.entry = entry
+			row:SetShown(entry ~= nil)
+			if entry and entry.header then
+				row.icon:Hide()
+				row.ground:SetColorTexture(1, 1, 1, 0)
+				row.text:SetText(Skin.Colorize(U.Upper(entry.header or ""), "kicker"))
+				row.text:SetTextColor(1, 1, 1)
+				row.count:SetText("")
+			elseif entry then
+				local done = QuestDone(entry.id)
+				row.icon:Show()
+				row.icon:SetTexture(done and COMPLETE_ICON or OBJECTIVE_ICON)
+				row.ground:SetColorTexture(1, 1, 1, 0.035)
+				row.text:SetText(entry.level and ("[" .. entry.level .. "] " .. entry.title) or entry.title)
+				if entry.level then row.text:SetTextColor(W.QuestLevelColor(entry.level)) else row.text:SetTextColor(0.93, 0.9, 0.82) end
+				local total, finished = 0, 0
+				for _, item in ipairs(Objectives(entry.id)) do
+					total = total + 1
+					if item.done then finished = finished + 1 end
+				end
+				row.count:SetText(total > 0 and (finished .. "/" .. total) or "")
+			end
+		end
+	end
+	ui.journalScroll:Set(#entries, fits, journalOffset)
+	ui.journalEmpty:SetShown(entries[1] == nil)
+end
+
+-- What a quest says and gives (the game answers for the quest selected in its log: put back after) ----------------------
+
+local function WithSelected(id, read)
+	local log = C_QuestLog
+	if not (log and log.SetSelectedQuest and log.GetSelectedQuest) then return read() end
+	local before = Clean(Safe(log.GetSelectedQuest))
+	if before ~= id then Safe(log.SetSelectedQuest, id) end
+	local one, two = read()
+	if before ~= id then Safe(log.SetSelectedQuest, before or 0) end
+	return one, two
+end
+
+function QuestText(id)
+	local log = C_QuestLog
+	local logIndex = log and log.GetLogIndexForQuestID and Clean(Safe(log.GetLogIndexForQuestID, id))
+	if not (logIndex and logIndex > 0 and GetQuestLogQuestText) then return "" end
+	return Clean(WithSelected(id, function() return (Safe(GetQuestLogQuestText, logIndex)) end)) or ""
+end
+
+local function RewardIcon(at)
+	local icon = ui.rewardIcons[at]
+	if icon then return icon end
+	icon = Skin.Icon(ui.rewards, REWARD_SIZE)
+	icon:SetPoint("LEFT", (at - 1) * (REWARD_SIZE + 4), 0)
+	icon:EnableMouse(true)
+	Skin.ItemTooltip(icon, function(self) return self.item end)
+	ui.rewardIcons[at] = icon
+	return icon
+end
+
+function DrawRewards(id)
+	local list = {}
+	local money = WithSelected(id, function()
+		local function Read(name, texture, _, quality, _, item)
+			if Clean(item) then list[#list + 1] = { item = Clean(item), texture = Clean(texture) or name, quality = Clean(quality) } end
+		end
+		for at = 1, Clean(Safe(GetNumQuestLogRewards, id)) or 0 do Read(Safe(GetQuestLogRewardInfo, at, id)) end
+		for at = 1, Clean(Safe(GetNumQuestLogChoices, id, false)) or 0 do Read(Safe(GetQuestLogChoiceInfo, at)) end
+		return Clean(Safe(GetQuestLogRewardMoney, id)) or 0
+	end)
+	for at = 1, MAX_REWARDS do
+		local reward = list[at]
+		local icon = (reward or ui.rewardIcons[at]) and RewardIcon(at)
+		if icon then
+			icon:SetShown(reward ~= nil)
+			if reward then
+				icon.item = reward.item
+				icon:Set(reward.texture, reward.quality)
+			end
+		end
+	end
+	ui.rewardMoney:SetText(money > 0 and U.Coins(money) or "")
+	ui.rewards:SetShown(list[1] ~= nil or money > 0)
+end
+
+function Pushable(id)
+	local log = C_QuestLog
+	local allowed = log and log.IsPushableQuest and Clean(Safe(log.IsPushableQuest, id))
+	return allowed and Clean(Safe(IsInGroup)) and true or false
+end
+
+local function ShareQuest(id)
+	local ok = pcall(function()
+		C_QuestLog.SetSelectedQuest(id)
+		QuestLogPushQuest()
+	end)
+	if not ok then W.Print(L.ATLAS_REFUSED) end
+end
+
+local function AbandonQuest(id, title)
+	Skin.Ask(L.ATLAS_ABANDON_ASK:format(title), function()
+		local ok = pcall(function()
+			C_QuestLog.SetSelectedQuest(id)
+			C_QuestLog.SetAbandonQuest()
+			C_QuestLog.AbandonQuest()
+		end)
+		if not ok then return W.Print(L.ATLAS_REFUSED) end
+		chosen = nil
+		ns.AtlasDrawPanel()
+	end)
+end
+
 local function DrawChosen()
 	local data = chosen
 	ui.backButton:Show()
@@ -902,10 +1106,15 @@ local function DrawChosen()
 		for _, item in ipairs(Objectives(data.quest)) do
 			lines[#lines + 1] = Skin.Colorize(item.text, item.done and "good" or "text")
 		end
-		ui.objectives:SetText(table.concat(lines, "\n"))
-		place = { map = ns.AtlasMap(), x = data.x, y = data.y, title = data.title }
+		ui.about:SetText(table.concat(lines, "\n"))
+		ui.objectives:SetText(QuestText(data.quest))
+		DrawRewards(data.quest)
+		if not data.noPlace then place = { map = ns.AtlasMap(), x = data.x, y = data.y, title = data.title } end
 		local quests = _G.WandererQuests
 		ui.openButton:SetShown(type(quests) == "table" and quests.Reveal ~= nil)
+		ui.shareButton:Show()
+		ui.shareButton:SetEnabled(Pushable(data.quest))
+		ui.abandonButton:Show()
 	elseif data.kind == "giver" then
 		ui.objectives:SetText(table.concat(data.lines or {}, "\n"))
 		place = { map = ns.AtlasMap(), x = data.x, y = data.y, title = data.title }
@@ -936,7 +1145,22 @@ end
 function ns.AtlasDrawPanel()
 	if not ui then return end
 	ClearPanel()
-	if chosen then DrawChosen() else DrawOverview() end
+	ui.tabs:Select(panelView)
+	if chosen then
+		DrawChosen()
+	elseif panelView == "journal" then
+		DrawJournal()
+	else
+		DrawOverview()
+	end
+end
+
+function ns.AtlasPanelView() return panelView end
+function ns.AtlasSetPanel(view)
+	panelView, chosen, journalOffset = view, nil, 0
+	ns.AtlasDrawPanel()
+	ns.AtlasDrawZones()
+	ns.AtlasDrawPins()
 end
 
 -- The search --------------------------------------------------------------------------------------------------------
@@ -1067,6 +1291,16 @@ end
 
 -- The route, along the bottom -------------------------------------------------------------------------------------------
 
+-- (cut by letters: never inside an accented one)
+local function Short(words, most)
+	local letters = 0
+	for at in words:gmatch("()[^\128-\191]") do
+		letters = letters + 1
+		if letters > most then return words:sub(1, at - 1) .. ".." end
+	end
+	return words
+end
+
 local function DrawStrip()
 	local route = ns.Route()
 	ui.stepRows = ui.stepRows or {}
@@ -1086,7 +1320,7 @@ local function DrawStrip()
 			row:SetShown(step ~= nil)
 			if step then
 				row.step, row.index = step, at
-				row:SetLabel((at == route.current and Skin.Colorize(at, "gold") or at) .. "  " .. (#step.title > 22 and step.title:sub(1, 22) .. ".." or step.title))
+				row:SetLabel((at == route.current and Skin.Colorize(at, "gold") or at) .. "  " .. Short(step.title, 22))
 				row:SetAlpha(step.done and 0.55 or 1)
 				row:ClearAllPoints()
 				if previous then row:SetPoint("LEFT", previous, "RIGHT", 5, 0) else row:SetPoint("LEFT", ui.stripTitle, "RIGHT", 10, 0) end
@@ -1113,7 +1347,7 @@ end
 function ns.AtlasRefresh()
 	if not ui then return end
 	ReadPins()
-	if chosen and chosen.kind == "quest" and not QuestTitle(chosen.quest) then chosen = nil end
+	if chosen and chosen.kind == "quest" and not QuestInLog(chosen.quest) then chosen = nil end
 	ns.AtlasDrawPins()
 	ns.AtlasDrawPanel()
 	ns.AtlasDrawZones()
@@ -1134,6 +1368,7 @@ function ns.AtlasMapChanged()
 		end
 	end
 	ns.AtlasRefresh()
+	ns.AtlasFollow()
 end
 
 local listening
@@ -1145,7 +1380,10 @@ function ns.AtlasListen(on)
 			local window = ns.AtlasFrame()
 			if window and window:IsShown() then ns.AtlasRefresh() end
 		end)
-		listening:SetScript("OnEvent", function() refreshSoon() end)
+		listening:SetScript("OnEvent", function(_, event)
+			if event == "MAP_EXPLORATION_UPDATED" then ns.AtlasDrawLand() end
+			refreshSoon()
+		end)
 	end
 	for _, event in ipairs({ "QUEST_LOG_UPDATE", "QUEST_WATCH_LIST_CHANGED", "SUPER_TRACKING_CHANGED", "MAP_EXPLORATION_UPDATED" }) do
 		if on then pcall(listening.RegisterEvent, listening, event) else pcall(listening.UnregisterEvent, listening, event) end
@@ -1157,7 +1395,6 @@ local function Button(parent, word, tip, run)
 end
 
 function ns.AtlasBuildContent(window, margin, top, rightWidth, strip)
-	frame = window
 	ui = ns.AtlasUI()
 	ui.zonePool = CreateTexturePool(ui.world, "ARTWORK", 1)
 	ui.zoneLines = {}
@@ -1168,14 +1405,19 @@ function ns.AtlasBuildContent(window, margin, top, rightWidth, strip)
 	ui.mapName:SetPoint("LEFT", ui.upButton, "RIGHT", 6, 0)
 	local gameMap = Button(window, L.ATLAS_GAME_MAP, L.ATLAS_GAME_MAP_DESC, function() ns.AtlasToGameMap() end)
 	gameMap:SetPoint("TOPRIGHT", window, "TOPRIGHT", -62, -8)
+	gameMap.padBinding = function()
+		local map = _G.WorldMapFrame
+		return not (map and map:IsShown()) and "TOGGLEWORLDMAP" or nil
+	end
 	ui.walkButton = Button(window, L.ATLAS_WALK, L.ATLAS_WALK_DESC, function() ns.AtlasWalk() end)
 	ui.walkButton:SetPoint("RIGHT", gameMap, "LEFT", -6, 0)
 	local routes = Button(window, L.ATLAS_ROUTE_WINDOW, L.ATLAS_ROUTE_WINDOW_DESC, function() ns.Toggle() end)
 	routes:SetPoint("RIGHT", ui.walkButton, "LEFT", -6, 0)
 
 	-- Over the map: one search at the top, the legend along the bottom (what lets the clicks through to the map).
-	local side = CreateFrame("Frame", nil, ui.clip)
-	side:SetAllPoints()
+	-- (the window's, over the map: what the controller's cross reaches, the map itself left out of it)
+	local side = CreateFrame("Frame", nil, window)
+	side:SetAllPoints(ui.clip)
 	side:SetFrameLevel(ui.overlay:GetFrameLevel() + 90)
 	ui.side = side
 	ui.search = Skin.CreateInput(side, nil, 40, { hint = L.ATLAS_SEARCH, onChange = function(input, typed)
@@ -1194,7 +1436,9 @@ function ns.AtlasBuildContent(window, margin, top, rightWidth, strip)
 	card:SetWidth(rightWidth)
 	ui.card = card
 	ui.kicker = Skin.Text(card, "GameTooltipTextSmall", "kicker")
-	ui.kicker:SetPoint("TOPLEFT", 0, -4)
+	ui.tabs = Skin.Tabs(card, { { "map", L.ATLAS_TAB_MAP }, { "journal", L.ATLAS_TAB_JOURNAL } }, function(view) ns.AtlasSetPanel(view) end)
+	ui.tabs:SetPoint("TOPLEFT", 0, 0)
+	ui.kicker:SetPoint("TOPLEFT", 0, -TABS_HEIGHT - 2)
 	ui.kicker:SetWidth(rightWidth - 30)
 	ui.kicker:SetJustifyH("LEFT")
 	ui.backButton = Skin.GlyphButton(card, "close", 12, L.ATLAS_BACK, function()
@@ -1203,7 +1447,7 @@ function ns.AtlasBuildContent(window, margin, top, rightWidth, strip)
 		ns.AtlasDrawZones()
 		ns.AtlasDrawPins()
 	end)
-	ui.backButton:SetPoint("TOPRIGHT", 0, 0)
+	ui.backButton:SetPoint("TOPRIGHT", 0, -TABS_HEIGHT)
 	ui.placeTitle = Skin.Text(card, "GameTooltipHeaderText", "gold")
 	ui.placeTitle:SetPoint("TOPLEFT", ui.kicker, "BOTTOMLEFT", 0, -4)
 	ui.placeTitle:SetWidth(rightWidth)
@@ -1219,6 +1463,33 @@ function ns.AtlasBuildContent(window, margin, top, rightWidth, strip)
 	ui.objectives:SetPoint("TOPLEFT", ui.about, "BOTTOMLEFT", 0, -6)
 	ui.objectives:SetWidth(rightWidth)
 	ui.objectives:SetJustifyH("LEFT")
+	if ui.objectives.SetMaxLines then ui.objectives:SetMaxLines(QUEST_TEXT_LINES) end
+	ui.rewards = CreateFrame("Frame", nil, card)
+	ui.rewards:SetPoint("BOTTOMLEFT", 0, 104)
+	ui.rewards:SetPoint("BOTTOMRIGHT", 0, 104)
+	ui.rewards:SetHeight(REWARD_SIZE)
+	ui.rewardIcons = {}
+	ui.rewardMoney = Skin.Text(ui.rewards, "GameTooltipTextSmall", "text")
+	ui.rewardMoney:SetPoint("RIGHT")
+	-- The journal: over the panel's place, with its own scroll.
+	ui.journal = CreateFrame("Frame", nil, card)
+	ui.journal:SetPoint("TOPLEFT", 0, -TABS_HEIGHT)
+	ui.journal:SetPoint("BOTTOMRIGHT")
+	ui.journal:EnableMouseWheel(true)
+	ui.journal:SetScript("OnMouseWheel", function(_, delta)
+		journalOffset = journalOffset - delta * 2
+		ns.AtlasDrawPanel()
+	end)
+	ui.journalRows = {}
+	ui.journalScroll = Skin.ScrollBar(ui.journal, function(value)
+		journalOffset = math.floor(value + 0.5)
+		ns.AtlasDrawPanel()
+	end)
+	ui.journalScroll:SetPoint("TOPRIGHT")
+	ui.journalScroll:SetPoint("BOTTOMRIGHT")
+	ui.journalEmpty = Skin.Text(ui.journal, "GameTooltipText", "muted")
+	ui.journalEmpty:SetPoint("TOP", 0, -30)
+	ui.journalEmpty:SetText(L.ATLAS_JOURNAL_EMPTY)
 	ui.listTop = CreateFrame("Frame", nil, card)
 	ui.listTop:SetHeight(1)
 	ui.listTop:SetPoint("TOPLEFT", ui.placeTitle, "BOTTOMLEFT", 0, -52)
@@ -1239,6 +1510,14 @@ function ns.AtlasBuildContent(window, margin, top, rightWidth, strip)
 		if chosen and chosen.quest and type(quests) == "table" and quests.Reveal then quests.Reveal(chosen.quest) end
 	end, L.ATLAS_OPEN_QUEST_DESC)
 	ui.openButton:SetPoint("BOTTOMLEFT", 0, 6)
+	ui.shareButton = Skin.SmallButton(card, L.ATLAS_SHARE, function()
+		if chosen and chosen.quest then ShareQuest(chosen.quest) end
+	end, L.ATLAS_SHARE_DESC)
+	ui.shareButton:SetPoint("LEFT", ui.openButton, "RIGHT", 6, 0)
+	ui.abandonButton = Skin.SmallButton(card, L.ATLAS_ABANDON, function()
+		if chosen and chosen.quest then AbandonQuest(chosen.quest, chosen.title) end
+	end, L.ATLAS_ABANDON_DESC)
+	ui.abandonButton:SetPoint("BOTTOMRIGHT", 0, 6)
 
 	-- Below: the route.
 	ui.strip = CreateFrame("Frame", nil, window)
@@ -1254,9 +1533,9 @@ function ns.AtlasBuildContent(window, margin, top, rightWidth, strip)
 	ui.stripClear:SetPoint("RIGHT")
 
 	-- On the map: the zoom, where the mouse is.
-	local zoomBox = CreateFrame("Frame", nil, ui.clip)
+	local zoomBox = CreateFrame("Frame", nil, window)
 	zoomBox:SetSize(78, 26)
-	zoomBox:SetPoint("TOPRIGHT", -6, -6)
+	zoomBox:SetPoint("TOPRIGHT", ui.clip, "TOPRIGHT", -6, -6)
 	zoomBox:SetFrameLevel(ui.overlay:GetFrameLevel() + 90)
 	local plus = Skin.GlyphButton(zoomBox, "plus", 14, L.ATLAS_ZOOM_IN, function() ns.AtlasNotch(1) end)
 	plus:SetPoint("LEFT")
@@ -1313,7 +1592,7 @@ function ns.AtlasBuildContent(window, margin, top, rightWidth, strip)
 	ui.corpse:SetTexture("Interface\\Minimap\\POIIcons")
 	if GetPOITextureCoords then ui.corpse:SetTexCoord(GetPOITextureCoords(57)) end
 	ui.corpse:Hide()
-	return frame
+	ui.marks = { ui.you, ui.corpse, unpack(ui.party) }
 end
 
 function ns.AtlasDumpContent(out)

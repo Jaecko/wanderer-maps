@@ -508,6 +508,11 @@ end
 function ns.NextOpenStep()
 	local route = ns.Route()
 	local nextIndex = NextOpen(route, route.current)
+	-- (none after it: one left behind earlier, as NextStep goes on)
+	if not nextIndex then
+		local earlier = NextOpen(route, 0)
+		if earlier and earlier < route.current then nextIndex = earlier end
+	end
 	return nextIndex and route.steps[nextIndex] or nil
 end
 
@@ -552,6 +557,9 @@ function ns.RemoveStep(index)
 	table.remove(route.steps, index)
 	if route.current > index then route.current = route.current - 1 end
 	route.current = math.max(1, math.min(route.current, #route.steps))
+	-- (a step done in its place: the next one not done followed, as NextStep does)
+	local now = route.steps[route.current]
+	if now and now.done then route.current = NextOpen(route, route.current) or NextOpen(route, 0) or route.current end
 	if route.steps[1] then ns.PlanLegs() else route.legs, route.leg, route.planned = nil, 1, nil end
 	ns.Changed()
 end

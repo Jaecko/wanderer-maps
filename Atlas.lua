@@ -1,4 +1,4 @@
-local ADDON, ns = ...
+local _, ns = ...
 local L = ns.L
 
 -- The atlas: the big map, in a window of ours, opened by the game's map key. The map's own pictures (those the
@@ -53,6 +53,9 @@ local function MapInfo(id)
 	return type(info) == "table" and info or nil
 end
 
+-- The controller's cursor on the map (below): its place on the canvas, and whether it is what the controller is using.
+local padOn, padX, padY = false, 0, 0
+
 -- The projection -----------------------------------------------------------------------------------------------
 
 local function Scale() return math.max(fit * zoom, 0.01) end
@@ -62,13 +65,21 @@ function ns.AtlasProject(x, y) return offsetX + x * mapWide * Scale(), offsetY +
 
 -- The cursor on the canvas, and on the map (nil, nil: off it).
 function ns.AtlasCursor()
-	local x, y = GetCursorPosition()
-	local scale = ui.clip:GetEffectiveScale()
-	local cx, cy = x / scale - (ui.clip:GetLeft() or 0), (ui.clip:GetTop() or 0) - y / scale
+	local cx, cy
+	if padOn then
+		cx, cy = padX, padY
+	else
+		local x, y = GetCursorPosition()
+		local scale = ui.clip:GetEffectiveScale()
+		cx, cy = x / scale - (ui.clip:GetLeft() or 0), (ui.clip:GetTop() or 0) - y / scale
+	end
 	local mx, my = (cx - offsetX) / (mapWide * Scale()), (cy - offsetY) / (mapTall * Scale())
 	if mx < 0 or mx > 1 or my < 0 or my > 1 then return cx, cy, nil, nil end
 	return cx, cy, mx, my
 end
+
+-- Whether that cursor is the controller's now.
+function ns.AtlasPadCursor() return padOn end
 
 local function Clamp()
 	local wide, tall = ui.clip:GetWidth(), ui.clip:GetHeight()
@@ -86,7 +97,6 @@ local function Apply()
 	ui.world:SetPoint("TOPLEFT", ui.clip, "TOPLEFT", offsetX / scale, -offsetY / scale)
 	ns.AtlasPlacePins()
 end
-ns.AtlasApply = Apply
 
 local function FitToCanvas()
 	local wide, tall = ui.clip:GetWidth(), ui.clip:GetHeight()
@@ -198,13 +208,19 @@ end
 
 function ns.AtlasSetMap(id)
 	if not id or not MapInfo(id) then return false end
+	local before = map
 	map = id
-	if not DrawTiles() then
+	while not DrawTiles() do
 		-- (a place with no picture of its own, a dungeon's inside: the map around it)
-		local info = MapInfo(id)
+		local info = MapInfo(map)
 		local parent = info and Clean(info.parentMapID)
-		if parent and parent ~= 0 then return ns.AtlasSetMap(parent) end
-		return false
+		if not (parent and parent ~= 0 and MapInfo(parent)) then
+			-- (nothing to show all the way up: the map shown stays)
+			map = before
+			if map then DrawTiles() end
+			return false
+		end
+		map = parent
 	end
 	FitToCanvas()
 	zoom, zoomGoal = ZOOMS[1], ZOOMS[1]
@@ -282,9 +298,165 @@ local function PressMove()
 	Apply()
 end
 
+-- The controller on the map, as on the game's: the left stick moves a cursor drawn with two lines, the map follows at
+-- its edges, the right stick zooms toward it, the bottom button acts where it stands. The left stick is taken as the
+-- game's own cursor takes it, on a frame of ours (the character does not walk meanwhile); nothing of the game's cursor
+-- is touched (its state belongs to the game, written from here it would block it). In the walking mode, nothing: the
+-- map is there to walk with.
+local PAD_SPEED, PAD_DEAD, PAD_EDGE, PAD_PAN, PAD_REACH = 620, 0.18, 36, 520, 16
+local padPin, padLook
+local stickX, stickY = 0, 0
+
+local function PadFeel(pin)
+	if pin == padPin then return end
+	local leaving = padPin
+	padPin = pin
+	if leaving and leaving:GetScript("OnLeave") then leaving:GetScript("OnLeave")(leaving) end
+	if pin and pin:GetScript("OnEnter") then pin:GetScript("OnEnter")(pin) end
+end
+
+local function PadLeave()
+	if padOn then ui.overCanvas = false end
+	padOn = false
+	PadFeel(nil)
+end
+
+local function PadLook()
+	if padLook then return padLook end
+	padLook = CreateFrame("Frame", nil, ui.clip)
+	padLook:Hide()
+	padLook:SetAllPoints()
+	padLook:SetScript("OnShow", function(self)
+		if self.EnableGamePadStick then self:EnableGamePadStick(true) end
+		-- (the controller's own icons when the game has them, else the words)
+		local keys = Skin.PadKeys and Skin.PadKeys({ { "PADLSTICKAXIS", "MAP" }, { "PADRSTICKAXIS", "ZOOM" }, { "PAD1", "CHOOSE" },
+			{ "PAD3", "NOTE" } })
+		if self.hint then self.hint:SetText(keys or L.ATLAS_PAD_HINT) end
+	end)
+	padLook:SetScript("OnHide", function(self)
+		if self.EnableGamePadStick then self:EnableGamePadStick(false) end
+		stickX, stickY = 0, 0
+	end)
+	-- (true: left to the game, the right stick; false: taken)
+	pcall(padLook.SetScript, padLook, "OnGamePadStick", function(_, stick, x, y)
+		if stick ~= "Left" then return true end
+		stickX, stickY = x, y
+		return false
+	end)
+	padLook:SetFrameLevel(ui.overlay:GetFrameLevel() + 20)
+	local function Line()
+		local line = padLook:CreateTexture(nil, "OVERLAY")
+		line:SetColorTexture(1, 0.82, 0, 0.55)
+		return line
+	end
+	padLook.across, padLook.down = Line(), Line()
+	padLook.across:SetHeight(1)
+	padLook.down:SetWidth(1)
+	padLook.dot = padLook:CreateTexture(nil, "OVERLAY", nil, 1)
+	padLook.dot:SetSize(7, 7)
+	padLook.dot:SetColorTexture(1, 0.82, 0, 1)
+	padLook.hint = Skin.Text(padLook, "GameFontHighlight", "text")
+	padLook.hint:SetPoint("BOTTOMLEFT", 8, 8)
+	padLook.hint:SetText(L.ATLAS_PAD_HINT)
+	padLook.hint:SetShadowOffset(1, -1)
+	padLook.hint:SetShadowColor(0, 0, 0, 1)
+	return padLook
+end
+
+local function PadPinUnder()
+	local left, top = ui.clip:GetLeft(), ui.clip:GetTop()
+	if not (left and top) then return nil end
+	local best, bestDistance = nil, PAD_REACH ^ 2
+	for _, pin in ipairs(ui.pins) do
+		if pin:IsShown() and pin.data then
+			local x, y = pin:GetCenter()
+			if x then
+				local distance = (x - left - padX) ^ 2 + (top - y - padY) ^ 2
+				if distance < bestDistance then best, bestDistance = pin, distance end
+			end
+		end
+	end
+	return best
+end
+
+local function PadMove(elapsed)
+	local holds = Skin.PadHolds and Skin.PadHolds(window) and not Db().walk
+	if not holds then
+		if padLook then padLook:Hide() end
+		return PadLeave()
+	end
+	local look = PadLook()
+	look:Show()
+	local wide, tall = ui.clip:GetWidth(), ui.clip:GetHeight()
+	if padX <= 0 and padY <= 0 then padX, padY = wide / 2, tall / 2 end
+	local x, y = stickX, stickY
+	if math.abs(x) > PAD_DEAD or math.abs(y) > PAD_DEAD then
+		if not padOn and Skin.PadRefreshHint then
+			padOn = true
+			Skin.PadRefreshHint()
+		end
+		padOn, ui.overCanvas = true, true
+		padX = math.max(0, math.min(wide, padX + x * PAD_SPEED * elapsed))
+		padY = math.max(0, math.min(tall, padY - y * PAD_SPEED * elapsed))
+		local panX = (padX < PAD_EDGE and x < 0 or padX > wide - PAD_EDGE and x > 0) and -x or 0
+		local panY = (padY < PAD_EDGE and y > 0 or padY > tall - PAD_EDGE and y < 0) and y or 0
+		if panX ~= 0 or panY ~= 0 then
+			offsetX, offsetY = offsetX + panX * PAD_PAN * elapsed, offsetY + panY * PAD_PAN * elapsed
+			Apply()
+		end
+	end
+	look.across:ClearAllPoints()
+	look.across:SetPoint("LEFT", ui.clip, "TOPLEFT", 0, -padY)
+	look.across:SetPoint("RIGHT", ui.clip, "TOPRIGHT", 0, -padY)
+	look.down:ClearAllPoints()
+	look.down:SetPoint("TOP", ui.clip, "TOPLEFT", padX, 0)
+	look.down:SetPoint("BOTTOM", ui.clip, "BOTTOMLEFT", padX, 0)
+	look.dot:ClearAllPoints()
+	look.dot:SetPoint("CENTER", ui.clip, "TOPLEFT", padX, -padY)
+	PadFeel(padOn and PadPinUnder() or nil)
+end
+
+-- The bottom button where the cursor stands, the top one as a right click, the right stick's zoom: only while the
+-- stick is what is being used (the cross goes back to the list).
+local function PadClick()
+	if not padOn then return false end
+	if padPin then
+		padPin:Click("LeftButton")
+		return true
+	end
+	PressDown(nil, "LeftButton")
+	PressUp(nil, "LeftButton")
+	return true
+end
+
+local function PadRight()
+	if not padOn then return false end
+	if padPin then
+		padPin:Click("RightButton")
+		return true
+	end
+	PressDown(nil, "RightButton")
+	PressUp(nil, "RightButton")
+	return true
+end
+
+local function PadNote()
+	if not padOn then return false end
+	local _, _, x, y = ns.AtlasCursor()
+	if x then ns.NoteCard(map, x, y) end
+	return true
+end
+
+local function PadWheel(delta)
+	if not padOn then return false end
+	Notch(delta > 0 and 1 or -1, padX, padY)
+	return true
+end
+
 local function Tick(_, elapsed)
 	Animate(elapsed)
 	PressMove()
+	PadMove(elapsed)
 	followedAt = followedAt + elapsed
 	if followedAt >= FOLLOW_EVERY then
 		followedAt = 0
@@ -336,6 +508,13 @@ local function Create()
 	end)
 	clip:SetScript("OnEnter", function() ui.overCanvas = true end)
 	clip:SetScript("OnLeave", function() ui.overCanvas = false end)
+	-- (a controller: the map has its cursor, the cross stays for the list and the buttons)
+	clip.padIgnored = true
+	if Skin.PadHolds then
+		-- (the left button: a note where the cursor stands, as Alt + click)
+		Skin.PadWindow(window, { click = PadClick, right = PadRight, wheel = PadWheel, alt = PadNote,
+			hasAlt = function() return padOn end, onNavigate = PadLeave })
+	end
 	window:SetScript("OnUpdate", Tick)
 	ns.AtlasBuildContent(window, margin, TOP, RIGHT_COLUMN, STRIP)
 	-- (its size is yours: a corner to pull)
@@ -343,6 +522,7 @@ local function Create()
 	if window.SetResizeBounds then window:SetResizeBounds(WIDTH_LEAST, HEIGHT_LEAST, WIDTH_MOST + 500, HEIGHT_MOST + 300) end
 	local grip = Skin.GlyphButton(window, "move", 12, L.ATLAS_RESIZE, function() end)
 	grip:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -2, 2)
+	grip.padIgnored = true -- (dragged: a mouse's)
 	grip:SetScript("OnMouseDown", function() window:StartSizing("BOTTOMRIGHT") end)
 	grip:SetScript("OnMouseUp", function()
 		window:StopMovingOrSizing()
@@ -354,6 +534,7 @@ local function Create()
 	window:HookScript("OnHide", function()
 		ns.AtlasListen(false)
 		press = nil
+		PadLeave()
 		Db().map = map
 	end)
 end
@@ -364,27 +545,46 @@ function ns.AtlasShow(id, x, y)
 	local wasShown = window:IsShown()
 	window:Show()
 	local goal = id or (not wasShown and WhereYouAre()) or map or WhereYouAre()
-	if goal and (goal ~= map or not wasShown) then ns.AtlasSetMap(goal) end
+	local drawn = goal and (goal ~= map or not wasShown) and ns.AtlasSetMap(goal)
+	-- (no map at all yet, where you are has none: never a canvas without one)
+	if not map then drawn = ns.AtlasSetMap(EASTERN_KINGDOMS) end
 	Relayout()
 	if x and y then ns.AtlasFocus(x, y, ZOOMS[3]) end
-	ns.AtlasRefresh()
+	-- (a new map has just read its pins: only its zones follow the size just given)
+	if drawn and not (x and y) then ns.AtlasDrawZones() else ns.AtlasRefresh() end
 end
 
-function ns.AtlasToggle()
-	if window and window:IsShown() then return window:Hide() end
+-- The land drawn again (explored while the atlas is open), the zoom and the pan left as they are.
+function ns.AtlasDrawLand()
+	if window and map then DrawTiles() end
+end
+
+-- A key pressed: the map, or the journal of your quests beside it. The same key again closes it; the other one
+-- only changes what the panel shows, as the game's two keys do on its one window.
+function ns.AtlasToggle(view)
+	view = view or "map"
+	if window and window:IsShown() then
+		if ns.AtlasPanelView() == view then return window:Hide() end
+		return ns.AtlasSetPanel(view)
+	end
 	ns.AtlasShow()
+	ns.AtlasSetPanel(view)
 end
 
 -- To the game's own map (it stays one click away; never in a fight, the game refuses it there).
 function ns.AtlasToGameMap()
 	if InCombatLockdown() then return W.Print(L.ATLAS_NOT_IN_FIGHT) end
 	if window then window:Hide() end
+	-- (a controller: the game's map is never asked for from here, it blocks the game's own actions. Already open behind
+	-- this window, it is simply seen again; closed, the button is the game's own key, padBinding.)
+	if U.UsingPad() then return end
 	if ToggleWorldMap then pcall(ToggleWorldMap) end
 end
 
 -- The game's map key opens the atlas: for this session only, your key bindings stay as they are, and the key goes
 -- back by itself when this is off.
 local keyOwner, takenKeys
+local TAKEN_KEYS = { TOGGLEWORLDMAP = "WANDERERMAPS_ATLAS", TOGGLEQUESTLOG = "WANDERERMAPS_JOURNAL" }
 local function SameJob()
 	local api = C_AddOns and C_AddOns.IsAddOnLoaded
 	for _, name in ipairs(SAME_JOB) do
@@ -396,27 +596,90 @@ end
 function ns.AtlasPlaceKey()
 	if InCombatLockdown() then return U.AfterFight("mapsAtlasKey", ns.AtlasPlaceKey) end
 	local settings = ns.Settings()
-	local keys = {}
-	if settings and settings.enabled and settings.atlas and GetBindingKey and not SameJob() then keys = { GetBindingKey("TOGGLEWORLDMAP") } end
-	local words = table.concat(keys, ",")
-	if words == (takenKeys or "") then return end
-	takenKeys = words
+	local keys, words = {}, {}
+	if settings and settings.enabled and settings.atlas and GetBindingKey and not SameJob() then
+		for game, ours in pairs(TAKEN_KEYS) do
+			for _, key in ipairs({ GetBindingKey(game) }) do
+				keys[key] = ours
+				words[#words + 1] = key .. "=" .. ours
+			end
+		end
+	end
+	table.sort(words)
+	local now = table.concat(words, ",")
+	if now == (takenKeys or "") then return end
+	takenKeys = now
 	keyOwner = keyOwner or CreateFrame("Frame")
 	Safe(ClearOverrideBindings, keyOwner)
-	for _, key in ipairs(keys) do Safe(SetOverrideBinding, keyOwner, false, key, "WANDERERMAPS_ATLAS") end
+	for key, ours in pairs(keys) do Safe(SetOverrideBinding, keyOwner, false, key, ours) end
 end
 
 BINDING_NAME_WANDERERMAPS_ATLAS = L.ATLAS
-function WandererMaps_Atlas()
+BINDING_NAME_WANDERERMAPS_JOURNAL = L.ATLAS_TAB_JOURNAL
+local function PressKey(view)
 	local settings = ns.Settings()
-	if settings and settings.enabled then ns.AtlasToggle() end
+	if settings and settings.enabled then ns.AtlasToggle(view) end
+end
+function WandererMaps_Atlas() PressKey("map") end
+function WandererMaps_Journal() PressKey("journal") end
+
+-- The way to the atlas from the game's map: the controller's wheel opens that map, and the map key can't be heard
+-- there. With a mouse the game's map gives way; with a controller it stays behind: closed from here, the game's
+-- controller state would be written by an addon, and the game would then block its own actions.
+local function FromGameMap()
+	local id = WorldMapFrame.GetMapID and Clean(Safe(WorldMapFrame.GetMapID, WorldMapFrame))
+	if not U.UsingPad() and not InCombatLockdown() and ToggleWorldMap then pcall(ToggleWorldMap) end
+	ns.AtlasShow(id)
+	ns.AtlasSetPanel("map")
+end
+
+local gameMapButton
+local function RefreshGameMapButton()
+	if not gameMapButton then return end
+	local settings = ns.Settings()
+	gameMapButton:SetShown(settings and settings.enabled and settings.atlas and not SameJob() and true or false)
+end
+
+-- (made once at login, never while the game's map is open: the controller interface watches what is made in it)
+local function CreateGameMapButton()
+	if gameMapButton or not WorldMapFrame then return end
+	local holder = type(WorldMapFrame.ScrollContainer) == "table" and WorldMapFrame.ScrollContainer or WorldMapFrame
+	gameMapButton = Skin.SmallButton(WorldMapFrame, L.ATLAS, FromGameMap, L.ATLAS_BUTTON_DESC, 22)
+	gameMapButton:SetPoint("BOTTOMLEFT", holder, "BOTTOMLEFT", 8, 8)
+	gameMapButton:SetFrameStrata(WorldMapFrame:GetFrameStrata())
+	gameMapButton:SetFrameLevel(math.min(9000, (holder:GetFrameLevel() or 1) + 1500))
+	ns.atlasGameMapButton = gameMapButton
+	RefreshGameMapButton()
 end
 
 function ns.InitAtlas()
+	CreateGameMapButton()
+	-- (a controller asking for the game's map by its own key, from the atlas: the atlas gives way)
+	if WorldMapFrame and WorldMapFrame.HookScript then
+		WorldMapFrame:HookScript("OnShow", function()
+			if U.UsingPad() and window and window:IsShown() then window:Hide() end
+		end)
+	end
+	-- (the controller's wheel: the atlas in front of the game's map, when it takes the map's key)
+	local kit = _G.Wanderer and _G.Wanderer.Skin
+	if kit and kit.PadStandIn then
+		kit.PadStandIn({ micro = _G.QuestLogMicroButton, binding = "TOGGLEWORLDMAP",
+			wanted = function()
+				local settings = ns.Settings()
+				return settings and settings.enabled and settings.atlas and not SameJob()
+			end,
+			game = function() return _G.WorldMapFrame end,
+			open = function()
+				ns.AtlasShow()
+				ns.AtlasSetPanel("map")
+			end,
+			window = function() return window end })
+	end
 	local events = CreateFrame("Frame")
 	for _, event in ipairs({ "UPDATE_BINDINGS", "PLAYER_ENTERING_WORLD" }) do events:RegisterEvent(event) end
 	events:SetScript("OnEvent", function() ns.AtlasPlaceKey() end)
 	ns.OnChanged(function()
+		RefreshGameMapButton()
 		ns.AtlasPlaceKey()
 		local settings = ns.Settings()
 		if window and window:IsShown() then
@@ -444,5 +707,3 @@ function ns.AtlasDump()
 	ns.DB().atlasDump = out
 	return out
 end
-
-ns.ATLAS_ADDON = ADDON

@@ -527,5 +527,4 @@ function ns.InitFlightLine()
 			Wake()
 		end
 	end)
-	Resume()
 end

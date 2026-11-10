@@ -1,15 +1,15 @@
-# Wanderer Maps 1.3.11
+# Wanderer Maps 1.3.20
 
 ### New
-- The Atlas: the big map in Wanderer's window, opened by the game's map key, with the same navigation as the game's map. The game's map stays one click away, and an option gives the key back.
-- Your quest objectives as zones with their own outline, what is done taken away, and who takes a finished quest back. A click on a zone puts the quest in front of your list.
-- One search over the map, a legend in one line along the bottom, your route, notes, flights, boats, dungeons and town services.
-- A walk mode, a window you can resize, and a side panel to read one place at a time.
+- Controller support in the Atlas, as on the game's map: the left stick moves a cursor drawn with two gold lines (your character does not walk meanwhile, except in walking mode), the map follows at its edges, the right stick zooms toward it, the bottom button acts where it stands and the top one is the right click. The hint is written on the map. Needs Wanderer 1.4.36 or later.
+- With the controller's radial wheel, Map opens the Atlas in front of the game's map when the Atlas replaces it; the right button closes both.
+- A Journal tab in the Atlas: every quest of your log by zone, what it asks and gives, with Share and Abandon (asked first). When the Atlas takes the map key, your quest log key opens it.
+- A button on the game's map opens the Atlas on the same map.
+- With a controller, the left button writes a note where the atlas cursor stands, as Alt + click does.
 
 ### Fixed
-- Reaching the last step no longer wipes the steps left to do.
-- A pin that is not Wanderer's stays on the map when you reach it.
-- A note refused because your notes are full no longer loses what you wrote.
-- The levels of the previous zone no longer stay displayed in a fight.
-- A route's line no longer cuts straight across a step on another map.
-- The Notes button no longer covers a button of the game.
+- A handed-in quest no longer stays chosen in the Atlas.
+- Land explored in walking mode shows at once.
+- Route steps follow correctly when one is left behind.
+- Long names are cut cleanly in every language.
+- The minimap no longer redraws while you stand still.

@@ -22,6 +22,7 @@ local overlay, driver, since = nil, nil, 0
 local pins, dots, notePins = {}, {}, {}
 local spots = {} -- each step's world place, read once for each route
 local noteSpots = setmetatable({}, { __mode = "k" }) -- each note's world place, read once
+local last = {} -- what the last look was drawn for (where you stood, the minimap's turn and reach, the route's version)
 
 local function Radius()
 	local zoom = Clean(Safe(Minimap.GetZoom, Minimap)) or 0
@@ -124,9 +125,16 @@ local function Look()
 	local px, py, here = ns.Here()
 	if not px then return overlay:Hide() end
 	overlay:Show()
-	local at = { x = px, y = py, instance = here, turn = 0, radius = Radius(), half = Minimap:GetWidth() / 2 }
-	if Clean(Safe(GetCVar, "rotateMinimap")) == "1" then at.turn = Clean(Safe(GetPlayerFacing)) or 0 end
-	local radius, half = at.radius, at.half
+	local turn = Clean(Safe(GetCVar, "rotateMinimap")) == "1" and (Clean(Safe(GetPlayerFacing)) or 0) or 0
+	local radius, half = Radius(), Minimap:GetWidth() / 2
+	-- (nothing moved and nothing changed since the last look: the pins stand where they are)
+	local drawn = last
+	if drawn.x == px and drawn.y == py and drawn.instance == here and drawn.turn == turn and drawn.radius == radius
+		and drawn.half == half and drawn.version == ns.version then
+		return
+	end
+	drawn.x, drawn.y, drawn.instance, drawn.turn, drawn.radius, drawn.half, drawn.version = px, py, here, turn, radius, half, ns.version
+	local at = { x = px, y = py, instance = here, turn = turn, radius = radius, half = half }
 	Notes(at)
 	-- The steps.
 	for index, step in ipairs(route.steps) do
@@ -181,6 +189,7 @@ function ns.RefreshMinimap()
 	wipe(spots)
 	for note in pairs(noteSpots) do noteSpots[note] = nil end
 	for _, pin in ipairs(notePins) do pin.key = nil end
+	wipe(last)
 	since = STEP
 	Look()
 	driver:SetShown(Wanted())

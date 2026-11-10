@@ -291,19 +291,23 @@ end
 -- The notes' button on the world map: its card filters them by sign or hides them all (the minimap the same).
 -- Shown while there are notes, Wanderer Maps on.
 local mapButton
+
+-- (made once at login, never while the game's map is open: the controller interface watches what is made in it)
+local function CreateMapButton()
+	if mapButton or not WorldMapFrame then return end
+	local holder = type(WorldMapFrame.ScrollContainer) == "table" and WorldMapFrame.ScrollContainer or WorldMapFrame
+	mapButton = Skin.SmallButton(WorldMapFrame, "", function(self) ns.FilterCard(self) end, L.FILTER_TIP, 22)
+	-- (beside the game's own button in that corner)
+	mapButton:SetPoint("TOPLEFT", holder, "TOPLEFT", 44, -8)
+	mapButton:SetFrameStrata(WorldMapFrame:GetFrameStrata())
+	mapButton:SetFrameLevel(math.min(9000, (holder:GetFrameLevel() or 1) + 1500))
+	mapButton:Hide()
+end
+
 function ns.RefreshMapButton()
-	if not WorldMapFrame then return end
+	if not mapButton then return end
 	local settings = ns.Settings()
 	local wanted = settings and settings.enabled and ns.Notes()[1] ~= nil
-	if not mapButton then
-		if not wanted then return end
-		local holder = WorldMapFrame.ScrollContainer or WorldMapFrame
-		mapButton = Skin.SmallButton(WorldMapFrame, "", function(self) ns.FilterCard(self) end, L.FILTER_TIP, 22)
-		-- (beside the game's own button in that corner)
-		mapButton:SetPoint("TOPLEFT", holder, "TOPLEFT", 44, -8)
-		mapButton:SetFrameStrata(WorldMapFrame:GetFrameStrata())
-		mapButton:SetFrameLevel(math.min(9000, (holder:GetFrameLevel() or 1) + 1500))
-	end
 	local hidden = ns.NotesHidden()
 	local some = false
 	for _, icon in ipairs(ns.NOTE_ICONS) do some = some or ns.SignHidden(icon.key) end
@@ -376,6 +380,7 @@ end
 function ns.InitPins()
 	if not WorldMapFrame then return end
 	Provider()
+	CreateMapButton()
 	WorldMapFrame:AddCanvasClickHandler(OnCanvasClick, 100)
 	ns.OnChanged(ns.RefreshPins)
 end

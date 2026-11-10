@@ -334,7 +334,7 @@ function ns.Init()
 			o.Under(o.Checkbox("maps", "hearth", L.HEARTH_OPTION, L.HEARTH_OPTION_DESC, ns.Replan), gps, gpsOn)
 
 			o.Header(L.SECTION_WORLD_MAP)
-			Check("atlas", L.ATLAS_OPTION, L.ATLAS_OPTION_DESC, ns.AtlasPlaceKey)
+			Check("atlas", L.ATLAS_OPTION, L.ATLAS_OPTION_DESC, ns.Changed)
 			Check("world", L.WORLD_OPTION, L.WORLD_OPTION_DESC, ns.RefreshWorld)
 			Check("unexplored", L.UNEXPLORED_OPTION, L.UNEXPLORED_OPTION_DESC, ns.RefreshWorld)
 			Check("explored", L.EXPLORED_OPTION, L.EXPLORED_OPTION_DESC, ns.RefreshWorld)

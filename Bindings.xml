@@ -8,4 +8,7 @@
 	<Binding name="WANDERERMAPS_ATLAS">
 		WandererMaps_Atlas()
 	</Binding>
+	<Binding name="WANDERERMAPS_JOURNAL">
+		WandererMaps_Journal()
+	</Binding>
 </Bindings>

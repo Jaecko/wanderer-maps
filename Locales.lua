@@ -274,6 +274,17 @@ local LOCALES = {
 		ATLAS_ZOOM_OUT = "Farther",
 		ATLAS_ZOOM_ALL = "The whole map",
 		ATLAS_HELP = "Wheel: zoom   Drag: move   Right click: back   Alt+click: note or go",
+		ATLAS_TAB_MAP = "This map",
+		ATLAS_TAB_JOURNAL = "Journal",
+		ATLAS_JOURNAL_EMPTY = "No quest in your log.",
+		ATLAS_SHARE = "Share",
+		ATLAS_SHARE_DESC = "Offers it to your group.",
+		ATLAS_ABANDON = "Abandon",
+		ATLAS_ABANDON_DESC = "Removes it from your log, after asking.",
+		ATLAS_ABANDON_ASK = "Abandon \"%s\"?",
+		ATLAS_REFUSED = "The game refused: use the game's map.",
+		ATLAS_BUTTON_DESC = "Opens the Atlas on this same map.",
+		ATLAS_PAD_HINT = "Left stick: map · right stick: zoom · bottom button: select",
 	},
 }
 ns.LOCALES = LOCALES
