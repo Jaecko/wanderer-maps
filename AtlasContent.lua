@@ -393,19 +393,25 @@ local function Wanted(data, zoom)
 	return true
 end
 
--- The routes's dots, between the steps of this map.
+-- Where you stand on the map shown (kept by ns.AtlasFollow), the route's line starts there.
+local youAt
+
+-- The routes's dots: from you to your next step when you are on this map, then between the steps of this map.
 local function DrawRouteDots()
 	ui.dots = ui.dots or {}
 	local used = 0
 	local map = ns.AtlasMap()
 	local route = ns.Route()
-	local last
+	local last = youAt and { ns.AtlasProject(youAt[1], youAt[2]) } or nil
 	if map and Shown("route") then
 		for number, step in ipairs(route.steps) do
-			local x, y = OnThisMap(step, map)
-			if not x then
+			local open = number >= route.current and not step.done
+			local x, y
+			if open then x, y = OnThisMap(step, map) end
+			if open and not x then
+				-- (a step on another map: the line stops there)
 				last = nil
-			elseif number >= route.current and not step.done then
+			elseif open then
 				local px, py = ns.AtlasProject(x, y)
 				if last then
 					local length = math.sqrt((px - last[1]) ^ 2 + (py - last[2]) ^ 2)
@@ -763,6 +769,12 @@ function ns.AtlasFollow()
 	local map = ns.AtlasMap()
 	if not map then return end
 	local x, y = Position("player", map)
+	-- (the route's line follows you: drawn again once you have moved a little)
+	local moved = (x and not youAt) or (not x and youAt) or (x and (math.abs(x - youAt[1]) + math.abs(y - youAt[2]) > 0.002))
+	if moved then
+		youAt = x and { x, y } or nil
+		DrawRouteDots()
+	end
 	if x then
 		PlaceMark(ui.you, x, y)
 		local facing = Clean(Safe(GetPlayerFacing))
