@@ -14,6 +14,8 @@ local L = ns.L
 local W = Wanderer
 local U = W and W.Util
 local Skin = W and W.Skin
+-- (the family's gold: its accents)
+local GOLD = Skin and Skin.COLORS.gold
 local Safe, Clean = U and U.Safe, U and U.Clean
 
 local TEMPLATE = "WandererMapsPinTemplate"
@@ -100,7 +102,9 @@ function WandererMapsPinMixin:OnMouseEnter()
 		lines[2] = ns.TipLine(U.MapName(data.place.map) or "")
 		if data.place.icon then lines[3] = ns.TipLine(L[ns.NoteIconSpec(data.place.icon).word] or "", "soft") end
 	end
-	lines[#lines + 1] = ns.TipLine(data.kind == "step" and L.PIN_TIP or L.NOTE_PIN_TIP, "blue")
+	-- (a controller has no Shift or Ctrl: its own words)
+	local pad = U.UsingPad and U.UsingPad()
+	lines[#lines + 1] = ns.TipLine(data.kind == "step" and (pad and L.PIN_TIP_PAD or L.PIN_TIP) or (pad and L.NOTE_PIN_TIP_PAD or L.NOTE_PIN_TIP), "blue")
 	ns.ShowTip(self, lines)
 end
 
@@ -227,7 +231,7 @@ function Route:Draw()
 			local dot = self.dots[count]
 			if not dot then
 				dot = self:CreateTexture(nil, "ARTWORK")
-				dot:SetColorTexture(1, 0.82, 0, 0.85)
+				dot:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.85)
 				self.dots[count] = dot
 			end
 			local share = at / spaces

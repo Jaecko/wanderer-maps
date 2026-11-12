@@ -9,6 +9,8 @@ local _, ns = ...
 
 local W = Wanderer
 local U = W and W.Util
+-- (the family's gold: its accents)
+local GOLD = W and W.Skin and W.Skin.COLORS.gold
 local Safe, Clean = U and U.Safe, U and U.Clean
 
 local STEP = 0.1 -- seconds between two looks
@@ -60,7 +62,7 @@ local function Dot(index)
 	if dot then return dot end
 	dot = overlay:CreateTexture(nil, "ARTWORK")
 	dot:SetSize(DOT, DOT)
-	dot:SetColorTexture(1, 0.82, 0, 0.8)
+	dot:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.8)
 	dots[index] = dot
 	return dot
 end

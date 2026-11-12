@@ -194,7 +194,7 @@ function ns.LookForFlightMasters()
 	told[best.id] = time()
 	W.Toast(L.FLIGHT_UNKNOWN, L.FLIGHT_UNKNOWN_AT:format(best.name, math.floor(bestDistance + 0.5)), {
 		kicker = L.ADDON, icon = ns.FLIGHT_ICON, tone = "blue", wait = 120, kind = "mapsFlight",
-		onClick = function() ns.GoTo(best) end, hint = L.FLIGHT_FOLLOW_HINT,
+		onClick = function() ns.GoTo(best) end, hint = U.UsingPad and U.UsingPad() and L.FLIGHT_FOLLOW_HINT_PAD or L.FLIGHT_FOLLOW_HINT,
 		-- (found while the notice waited, after a fight, or the notices turned off meanwhile: nothing to say any more)
 		still = function()
 			local now = ns.Settings()

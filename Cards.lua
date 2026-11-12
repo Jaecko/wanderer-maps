@@ -28,7 +28,7 @@ local function ChooseIcon(index)
 	if not (icon and note and note:IsShown()) then return end
 	note.sign = icon.key
 	FillNote()
-	note.input:SetFocus()
+	if not (U.UsingPad and U.UsingPad()) then note.input:SetFocus() end
 end
 
 -- Saved as the card says: a new note, or the note changed; then followed, or a step of the route instead.
@@ -110,8 +110,11 @@ function FillNote()
 		rows[2] = { text = L.NOTE_FOLLOW, run = function() SaveNote("follow") end }
 		rows[3] = { text = L.NOTE_ROUTE, run = function() SaveNote("route") end }
 	end
-	card.keysLine:SetText(card.here and L.NOTE_KEYS_HERE or L.NOTE_KEYS)
-	card.box:SetHeight(24 + 6 + U.Measure(card.keysLine, "GetStringHeight", 24))
+	-- (a keyboard's keys: not said to a controller, its signs and rows are reached with the cross)
+	local pad = U.UsingPad and U.UsingPad()
+	card.keysLine:SetText(pad and "" or card.here and L.NOTE_KEYS_HERE or L.NOTE_KEYS)
+	card.keysLine:SetShown(not pad)
+	card.box:SetHeight(24 + (pad and 0 or 6 + U.Measure(card.keysLine, "GetStringHeight", 24)))
 	if card.note then
 		rows[#rows + 1] = { text = L.REMOVE, role = "bad", run = function()
 			local place = card.note
@@ -137,8 +140,11 @@ function ns.NoteCard(map, x, y, place)
 	note.input:SetText(note.placeTitle)
 	FillNote()
 	note:Present(nil)
-	note.input:SetFocus()
-	note.input:HighlightText()
+	-- (with a controller nothing is typed: the field is not taken)
+	if not (U.UsingPad and U.UsingPad()) then
+		note.input:SetFocus()
+		note.input:HighlightText()
+	end
 	return true
 end
 

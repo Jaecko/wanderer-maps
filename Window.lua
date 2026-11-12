@@ -18,7 +18,7 @@ local Skin = W and W.Skin
 local WIDTH, ROWS = 520, 10
 local LOOK_EVERY = 2 -- seconds between two distances while shown
 
-local window, tabs, list, here, clear, nearest, kept, sorter, removeSome
+local window, tabs, list, here, clear, nearest, kept, sorter, removeSome, arrowButton
 local tab = "route"
 local since = 0
 
@@ -112,11 +112,15 @@ local function Draw()
 			row:Fill(nil)
 		end
 	end
-	list.empty:SetText(tab == "route" and L.ROUTE_EMPTY or L.NOTES_EMPTY)
+	local pad = U.UsingPad and U.UsingPad()
+	if tab == "route" then list.empty:SetText(pad and L.ROUTE_EMPTY_PAD or L.ROUTE_EMPTY)
+	else list.empty:SetText(pad and L.NOTES_EMPTY_PAD or L.NOTES_EMPTY) end
 	list.empty:SetShown(#entries == 0)
 	clear:SetShown(tab == "route" and #entries > 0)
 	here:SetShown(tab == "notes")
 	kept:SetShown(tab == "route")
+	local settings = ns.Settings()
+	arrowButton:SetShown(tab == "route" and settings and settings.arrow and true or false)
 	sorter:SetLabel(ns.DB().noteSort == "used" and L.SORT_USED or L.SORT_ADDED)
 	sorter:SetShown(tab == "notes" and #entries > 1)
 	removeSome:SetShown(tab == "notes" and #entries > 0)
@@ -165,6 +169,8 @@ local function Create()
 			if tab == "route" then ns.FollowStep(entry.index) else ns.GoTo(entry.place) end
 		end,
 		onDraw = Draw,
+		-- (its right click: the row's choices, the pad's top button)
+		padRight = true, padRightWord = "MORE",
 	})
 	list:SetPoint("TOPLEFT", tabs, "BOTTOMLEFT", 0, -10)
 	-- (the foot: one action for the tab shown, in the same place)
@@ -177,6 +183,9 @@ local function Create()
 	kept = Skin.Button(window, L.KEPT_TITLE, function(self) ns.KeptRoutesCard(self) end)
 	kept:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -margin, margin)
 	Skin.Tooltip(kept, L.KEPT_DESC)
+	-- (the arrow's card, also reached here: the arrow itself takes only a mouse's right click)
+	arrowButton = Skin.SmallButton(window, L.ARROW_BUTTON, function() ns.ArrowCard() end, L.ARROW_BUTTON_DESC, kept:GetHeight())
+	arrowButton:SetPoint("RIGHT", kept, "LEFT", -8, 0)
 	removeSome = Skin.Button(window, L.REMOVE_NOTES, function(self) ns.RemoveNotesCard(self) end)
 	removeSome:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -margin, margin)
 	Skin.Tooltip(removeSome, L.REMOVE_NOTES_DESC)
@@ -215,8 +224,13 @@ local function Create()
 		button:Hide()
 		nearest.buttons[kind] = button
 	end
-	-- (its foot full of buttons: the "?" in the heading)
-	Skin.Help(window, L.HELP_TIP .. "\n" .. L.HELP_GPS, "HEADING")
+	-- (its foot full of buttons: the "?" in the heading; a controller reads its own keys)
+	local help = Skin.Help(window, L.HELP_TIP .. "\n" .. L.HELP_GPS, "HEADING")
+	if help then
+		help:HookScript("OnEnter", function(self)
+			if U.UsingPad and U.UsingPad() then Skin.ShowTip(self, L.HELP_TIP_PAD .. "\n" .. L.HELP_GPS, "ANCHOR_BOTTOM") end
+		end)
+	end
 	window:SetSize(WIDTH, margin * 2 + 30 + 30 + 10 + list:GetHeight() + 12 + 28 + 30)
 	window:HookScript("OnShow", function(self)
 		self:SetScale(Skin.FitScale(self))
@@ -379,7 +393,15 @@ function ns.Init()
 		local settings = ns.Settings()
 		return settings and settings.enabled and true or false
 	end
+	-- (the atlas there to show a quest or a habitat: Wanderer Maps on, its atlas on)
+	local function AtlasOn()
+		local settings = ns.Settings()
+		return On() and settings and settings.atlas and ns.AtlasShow ~= nil or false
+	end
 	_G.WandererMaps = {
+		-- (Wanderer Maps on: its route and notes offered; off, the others offer the game's own pin alone)
+		IsOn = On,
+		AtlasOn = AtlasOn,
 		Go = function(map, x, y, title, info)
 			if not On() then return U.Pin(map, x, y) and true or false end
 			return ns.GoTo({ map = map, x = x, y = y, title = title }, info)
@@ -392,10 +414,36 @@ function ns.Init()
 			local step, why = ns.AddStep(map, x, y, title, info)
 			return step ~= nil, why
 		end,
-		AddNote = function(map, x, y, title, icon) return ns.AddNote(map, x, y, title, icon) ~= nil end,
-		ChatLink = function(map, x, y, title) return ns.ChatLink(map, x, y, title) end,
-		Clear = function() ns.ClearRoute() end,
+		-- (switched off: no note kept, no link made, no route cleared)
+		AddNote = function(map, x, y, title, icon)
+			if not On() then return false end
+			return ns.AddNote(map, x, y, title, icon) ~= nil
+		end,
+		ChatLink = function(map, x, y, title)
+			if not On() then return nil end
+			return ns.ChatLink(map, x, y, title)
+		end,
+		Clear = function()
+			if not On() then return false end
+			ns.ClearRoute()
+			return true
+		end,
 		Toggle = function() ns.Toggle() end,
+		-- (Wanderer Bestiary: a creature's habitat drawn on the atlas, opened on its map with the most of it)
+		ShowHabitat = function(id, title, places)
+			if not AtlasOn() then return false end
+			if not (places and places[1]) then return false end
+			ns.AtlasShow(places[1].map)
+			ns.AtlasHabitat(id, title, places)
+			return true
+		end,
+		-- (Wanderer Quests' list: a quest of your log opened on the atlas; false when the atlas is off)
+		ShowQuest = function(id, title)
+			if not AtlasOn() then return false end
+			ns.AtlasShow()
+			ns.AtlasOpenQuest(id, title)
+			return true
+		end,
 		-- A whole route from places ({ { map, x, y, title } }), ordered from where you stand, each the nearest
 		-- from the last (a sensible tour); a route already there is asked about first. How many steps it made
 		-- (-1: asked, or Wanderer Maps off and said).
@@ -407,7 +455,7 @@ function ns.Init()
 			end
 			return ns.RouteFrom(places)
 		end,
-		Steps = function() return #ns.Route().steps end,
+		Steps = function() return On() and #ns.Route().steps or 0 end,
 	}
 	ns.ready = true
 end

@@ -70,14 +70,15 @@ local function CountText()
 	local bar = WorldMapFrame and WorldMapFrame.NavBar
 	if not bar then return nil end
 	count = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	count:SetTextColor(0.78, 0.72, 0.6)
+	count:SetTextColor(Wanderer.Skin.COLORS.label[1], Wanderer.Skin.COLORS.label[2], Wanderer.Skin.COLORS.label[3])
 	count:SetShadowOffset(1, -1)
 	count:SetShadowColor(0, 0, 0, 0.9)
 	return count
 end
 
 local FISHING_LINE = 356 -- (the fishing skill's line)
-local GOOD, MIDDLE, LOW = { 0.25, 0.75, 0.25 }, { 1, 0.82, 0 }, { 1, 0.1, 0.1 }
+local PALETTE = Wanderer and Wanderer.Skin and rawget(Wanderer.Skin, "COLORS") or {}
+local GOOD, MIDDLE, LOW = PALETTE.good or { 0.56, 0.88, 0.64 }, PALETTE.gold or { 1, 0.82, 0 }, PALETTE.bad or { 0.95, 0.54, 0.49 }
 
 -- Your fishing skill (nil: you do not fish).
 local function FishingSkill()

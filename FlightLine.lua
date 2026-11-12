@@ -12,6 +12,8 @@ local L = ns.L
 local W = Wanderer
 local U = W and W.Util
 local Skin = W and W.Skin
+-- (the family's gold: its accents)
+local GOLD = Skin and Skin.COLORS.gold
 local Safe, Clean = U and U.Safe, U and U.Clean
 
 local SPEED = 32 -- yards a second, a flight's
@@ -383,12 +385,12 @@ local function Create()
 	bar.time:SetJustifyH("RIGHT")
 	-- The line: thin, the part flown brighter.
 	local line = bar:CreateTexture(nil, "BORDER")
-	line:SetColorTexture(1, 0.82, 0, 0.18)
+	line:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.18)
 	line:SetHeight(1)
 	line:SetPoint("LEFT", bar, "TOPLEFT", SIDE, LINE_Y)
 	line:SetPoint("RIGHT", bar, "TOPRIGHT", -SIDE, LINE_Y)
 	bar.flown = bar:CreateTexture(nil, "ARTWORK", nil, -1)
-	bar.flown:SetColorTexture(1, 0.82, 0, 0.6)
+	bar.flown:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.6)
 	bar.flown:SetHeight(2)
 	bar.flown:SetPoint("LEFT", bar, "TOPLEFT", SIDE, LINE_Y)
 	bar.takeoff = Dot(DOT_END)

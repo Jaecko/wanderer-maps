@@ -10,7 +10,11 @@ local L = ns.L
 local W = Wanderer
 local U = W and W.Util
 local Skin = W and W.Skin
+-- (the family's gold: its accents)
+local GOLD = Skin and Skin.COLORS.gold
 local Safe, Clean = U and U.Safe, U and U.Clean
+-- (the controller's tests came with Wanderer's API 18: an older one has no pad)
+local function UsingPad() return U.UsingPad and U.UsingPad() or false end
 
 local WIDTH_MOST, HEIGHT_MOST = 1320, 820
 local WIDTH_LEAST, HEIGHT_LEAST = 860, 540
@@ -307,18 +311,34 @@ local PAD_SPEED, PAD_DEAD, PAD_EDGE, PAD_PAN, PAD_REACH = 620, 0.18, 36, 520, 16
 local padPin, padLook
 local stickX, stickY = 0, 0
 
+-- The cursor's hint: the controller's own icons when the game has them, else the words; on a pin, the left
+-- button opens its card, and the top one too on your own steps and notes (their right click).
+-- (the card's word is Maps' own: the core has it only from its API 21)
+local function PadHint()
+	if not (padLook and padLook.hint) then return end
+	local data = padPin and padPin.data
+	local own = data and (data.kind == "step" or data.kind == "note")
+	local keys = Skin.PadKeys and Skin.PadKeys({ { "PADLSTICKAXIS", "MAP" }, { "PADRSTICKAXIS", "ZOOM" }, { "PAD1", "CHOOSE" },
+		{ "PAD3", data and L.PAD_PLACE or "NOTE" }, { "PAD4", own and L.PAD_PLACE or "BACK" } })
+	padLook.hint:SetText(keys or L.ATLAS_PAD_HINT)
+end
+
 local function PadFeel(pin)
 	if pin == padPin then return end
 	local leaving = padPin
 	padPin = pin
 	if leaving and leaving:GetScript("OnLeave") then leaving:GetScript("OnLeave")(leaving) end
 	if pin and pin:GetScript("OnEnter") then pin:GetScript("OnEnter")(pin) end
+	PadHint()
 end
 
 local function PadLeave()
+	local was = padOn
 	if padOn then ui.overCanvas = false end
 	padOn = false
 	PadFeel(nil)
+	-- (the list's chosen button speaks again of its own keys)
+	if was and Skin.PadRefreshHint then Skin.PadRefreshHint() end
 end
 
 local function PadLook()
@@ -328,10 +348,7 @@ local function PadLook()
 	padLook:SetAllPoints()
 	padLook:SetScript("OnShow", function(self)
 		if self.EnableGamePadStick then self:EnableGamePadStick(true) end
-		-- (the controller's own icons when the game has them, else the words)
-		local keys = Skin.PadKeys and Skin.PadKeys({ { "PADLSTICKAXIS", "MAP" }, { "PADRSTICKAXIS", "ZOOM" }, { "PAD1", "CHOOSE" },
-			{ "PAD3", "NOTE" } })
-		if self.hint then self.hint:SetText(keys or L.ATLAS_PAD_HINT) end
+		PadHint()
 	end)
 	padLook:SetScript("OnHide", function(self)
 		if self.EnableGamePadStick then self:EnableGamePadStick(false) end
@@ -346,7 +363,7 @@ local function PadLook()
 	padLook:SetFrameLevel(ui.overlay:GetFrameLevel() + 20)
 	local function Line()
 		local line = padLook:CreateTexture(nil, "OVERLAY")
-		line:SetColorTexture(1, 0.82, 0, 0.55)
+		line:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.55)
 		return line
 	end
 	padLook.across, padLook.down = Line(), Line()
@@ -354,7 +371,7 @@ local function PadLook()
 	padLook.down:SetWidth(1)
 	padLook.dot = padLook:CreateTexture(nil, "OVERLAY", nil, 1)
 	padLook.dot:SetSize(7, 7)
-	padLook.dot:SetColorTexture(1, 0.82, 0, 1)
+	padLook.dot:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
 	padLook.hint = Skin.Text(padLook, "GameFontHighlight", "text")
 	padLook.hint:SetPoint("BOTTOMLEFT", 8, 8)
 	padLook.hint:SetText(L.ATLAS_PAD_HINT)
@@ -442,6 +459,11 @@ end
 
 local function PadNote()
 	if not padOn then return false end
+	-- (on a pin: its place card, as its right click opens it)
+	if padPin and padPin.data and ns.AtlasPlaceCard then
+		ns.AtlasPlaceCard(padPin.data, padPin)
+		return true
+	end
 	local _, _, x, y = ns.AtlasCursor()
 	if x then ns.NoteCard(map, x, y) end
 	return true
@@ -490,7 +512,7 @@ local function Create()
 	local ground = clip:CreateTexture(nil, "BACKGROUND", nil, -8)
 	ground:SetAllPoints()
 	ground:SetColorTexture(0.04, 0.07, 0.11, 1)
-	Skin.Edges(clip, 1, 0.82, 0, 0.16)
+	Skin.Edges(clip, GOLD[1], GOLD[2], GOLD[3], 0.16)
 	ui.world = CreateFrame("Frame", nil, clip)
 	ui.world:SetSize(1, 1)
 	ui.overlay = CreateFrame("Frame", nil, clip)
@@ -512,8 +534,10 @@ local function Create()
 	clip.padIgnored = true
 	if Skin.PadHolds then
 		-- (the left button: a note where the cursor stands, as Alt + click)
-		Skin.PadWindow(window, { click = PadClick, right = PadRight, wheel = PadWheel, alt = PadNote,
-			hasAlt = function() return padOn end, onNavigate = PadLeave })
+		-- (its word is said by the cursor's own hint: no second line under the window)
+		-- (API 21: while the stick drives the cursor, the list button chosen before says nothing of its own keys)
+		local owns = (W.API or 1) >= 21 and function() return padOn end or nil
+		Skin.PadWindow(window, { click = PadClick, right = PadRight, wheel = PadWheel, alt = PadNote, onNavigate = PadLeave, owns = owns })
 	end
 	window:SetScript("OnUpdate", Tick)
 	ns.AtlasBuildContent(window, margin, TOP, RIGHT_COLUMN, STRIP)
@@ -533,6 +557,11 @@ local function Create()
 	window:HookScript("OnShow", function() ns.AtlasListen(true) end)
 	window:HookScript("OnHide", function()
 		ns.AtlasListen(false)
+		if ns.AtlasHideSheet then ns.AtlasHideSheet() end
+		-- (a creature's card beside it goes with it, and its habitat)
+		if ns.AtlasHabitat then ns.AtlasHabitat(nil) end
+		local bestiary = _G.WandererBestiary
+		if type(bestiary) == "table" and bestiary.Hide then bestiary.Hide(window) end
 		press = nil
 		PadLeave()
 		Db().map = map
@@ -543,6 +572,8 @@ end
 function ns.AtlasShow(id, x, y)
 	if not window then Create() end
 	local wasShown = window:IsShown()
+	-- (opened: the quest you follow chosen at once on its map)
+	if not wasShown and ns.AtlasOfferPinned then ns.AtlasOfferPinned() end
 	window:Show()
 	local goal = id or (not wasShown and WhereYouAre()) or map or WhereYouAre()
 	local drawn = goal and (goal ~= map or not wasShown) and ns.AtlasSetMap(goal)
@@ -577,7 +608,7 @@ function ns.AtlasToGameMap()
 	if window then window:Hide() end
 	-- (a controller: the game's map is never asked for from here, it blocks the game's own actions. Already open behind
 	-- this window, it is simply seen again; closed, the button is the game's own key, padBinding.)
-	if U.UsingPad() then return end
+	if UsingPad() then return end
 	if ToggleWorldMap then pcall(ToggleWorldMap) end
 end
 
@@ -617,6 +648,8 @@ end
 BINDING_NAME_WANDERERMAPS_ATLAS = L.ATLAS
 BINDING_NAME_WANDERERMAPS_JOURNAL = L.ATLAS_TAB_JOURNAL
 local function PressKey(view)
+	-- (the keys do nothing until Wanderer Maps is set up)
+	if not ns.ready then return end
 	local settings = ns.Settings()
 	if settings and settings.enabled then ns.AtlasToggle(view) end
 end
@@ -628,7 +661,7 @@ function WandererMaps_Journal() PressKey("journal") end
 -- controller state would be written by an addon, and the game would then block its own actions.
 local function FromGameMap()
 	local id = WorldMapFrame.GetMapID and Clean(Safe(WorldMapFrame.GetMapID, WorldMapFrame))
-	if not U.UsingPad() and not InCombatLockdown() and ToggleWorldMap then pcall(ToggleWorldMap) end
+	if not UsingPad() and not InCombatLockdown() and ToggleWorldMap then pcall(ToggleWorldMap) end
 	ns.AtlasShow(id)
 	ns.AtlasSetPanel("map")
 end
@@ -657,7 +690,7 @@ function ns.InitAtlas()
 	-- (a controller asking for the game's map by its own key, from the atlas: the atlas gives way)
 	if WorldMapFrame and WorldMapFrame.HookScript then
 		WorldMapFrame:HookScript("OnShow", function()
-			if U.UsingPad() and window and window:IsShown() then window:Hide() end
+			if UsingPad() and window and window:IsShown() then window:Hide() end
 		end)
 	end
 	-- (the controller's wheel: the atlas in front of the game's map, when it takes the map's key)
