@@ -1,8 +1,10 @@
 local _, ns = ...
 local L = ns.L
 
--- The guided route: from where you stand to a place, the cheapest way in
--- time through what you have: your feet (as the crow flies, between two
+-- The guided route: from where you stand to a place, the best way through what
+-- you have, time and money weighed as you chose ("travel": the fastest, a
+-- balance, or the cheapest: a flight's fare counted as the time your level
+-- takes to earn it, a fare you cannot pay left out): your feet (as the crow flies, between two
 -- points of the same continent), the flight paths you know, the boats and
 -- zeppelins, your hearthstone (an option; its wait counted while it cools
 -- down). A flight's time is the one your flights taught (FlightLine.lua),
@@ -20,6 +22,18 @@ local BOAT_WAIT = 180 -- a crossing, the wait at the dock counted
 local TRAM_WAIT = 90 -- the tram
 local HEARTH_CAST = 15
 local STRAIGHT_FIRST = 150 -- yards: closer than this, no flight nor boat is worth it
+
+-- What a copper weighs in seconds of travel, as you chose: nothing (the fastest), the time a character of your level
+-- takes to earn it (a balance), four times that (the cheapest).
+local TRAVEL_WEIGHT = { fast = 0, balanced = 1, cheap = 4 }
+local function MoneyWeight()
+	local settings = ns.Settings()
+	local weight = TRAVEL_WEIGHT[settings and settings.travel or "balanced"] or 1
+	if weight == 0 then return 0 end
+	local level = Clean(Safe(UnitLevel, "player")) or 1
+	local perMinute = math.max(20, 2 * level * level) -- copper earned in a minute, about
+	return weight * 60 / perMinute
+end
 
 local function WalkSpeed()
 	return Clean(Safe(IsMounted)) and MOUNT or RUN
@@ -90,12 +104,19 @@ local function Edges(nodes, from)
 	local list = {}
 	local a = nodes[from]
 	local speed = WalkSpeed()
+	local weight, money = MoneyWeight(), Clean(Safe(GetMoney)) or 0
 	for index, b in ipairs(nodes) do
 		if index ~= from and b.kind ~= "start" and b.kind ~= "hearth" and a.instance == b.instance then
 			if Walkable(a, b) then list[#list + 1] = { to = index, cost = Distance(a, b) / speed, kind = "walk" } end
 			if a.kind == "taxi" and b.kind == "taxi" then
 				local learned = ns.HopSeconds and ns.HopSeconds(a.id, b.id)
-				list[#list + 1] = { to = index, cost = FLIGHT_WAIT + (learned or Distance(a, b) / FLIGHT_SPEED), kind = "fly" }
+				local seconds = FLIGHT_WAIT + (learned or Distance(a, b) / FLIGHT_SPEED)
+				local fare, sure = ns.Fare(a.id, b.id, Distance(a, b))
+				fare = fare or 0
+				-- (a fare the flight master asked and your purse cannot pay: no such flight)
+				if not (sure and fare > money) then
+					list[#list + 1] = { to = index, cost = seconds + fare * weight, seconds = seconds, fare = fare, kind = "fly" }
+				end
 			end
 		end
 	end
@@ -135,7 +156,7 @@ function ns.Plan(goal)
 			local cost = lowest + edge.cost
 			if cost < best[edge.to] then
 				best[edge.to] = cost
-				via[edge.to] = { from = current, kind = edge.kind }
+				via[edge.to] = { from = current, kind = edge.kind, seconds = edge.seconds or edge.cost, fare = edge.fare }
 			end
 		end
 	end
@@ -146,15 +167,110 @@ function ns.Plan(goal)
 		local step = via[at]
 		local node = nodes[at]
 		local leg = { kind = step.kind, map = node.map, x = node.x, y = node.y, wx = node.wx, wy = node.wy, instance = node.instance,
-			name = node.name, target = node.kind, cost = best[at] - best[step.from] }
+			name = node.name, target = node.kind, cost = best[at] - best[step.from], seconds = step.seconds, fare = step.fare }
 		-- (the stone still cooling down: when it is ready, as the plan was made)
 		if step.kind == "hearth" and (node.wait or 0) > 0 then leg.readyAt = GetTime() + node.wait end
 		table.insert(legs, 1, leg)
 		at = step.from
 	end
+	-- (two walks in a row, through a flight master or a dock passed on the way: one walk)
+	for index = #legs, 2, -1 do
+		local leg, before = legs[index], legs[index - 1]
+		if leg.kind == "walk" and before.kind == "walk" then
+			leg.seconds = (leg.seconds or leg.cost or 0) + (before.seconds or before.cost or 0)
+			leg.cost = (leg.cost or 0) + (before.cost or 0)
+			table.remove(legs, index - 1)
+		end
+	end
 	-- (a walk to the goal straight from the start: no way worth saying)
 	if #legs == 1 and legs[1].kind == "walk" then return nil end
 	return legs
+end
+
+-- The way adapted to where you stand -------------------------------------------------------------------------
+-- While a route is followed (on foot, out of a fight, off a flight), the way to the step followed is worked out
+-- again from where you stand now; a way clearly better than what is left of the one followed (a portal taken,
+-- another flight, a detour) replaces it, said once in a quiet line.
+
+local LOOK_EVERY = 10 -- seconds
+local BETTER_BY, BETTER_SHARE = 20, 0.15 -- seconds, share of what is left: below that, the way followed is kept
+local SAY_EVERY = 60
+
+-- What is left of the way followed, weighed as a plan is (time and money), from where you stand.
+local function LeftOfWay(route)
+	local legs = route.legs
+	local px, py, here = ns.Here()
+	if not px then return nil end
+	if not legs then
+		local step = ns.CurrentStep()
+		if not step then return nil end
+		local wx, wy, instance = ns.WorldOf(step.map, step.x, step.y)
+		if not wx or instance ~= here then return nil end
+		return math.sqrt((wx - px) ^ 2 + (wy - py) ^ 2) / WalkSpeed()
+	end
+	local total = 0
+	for index = route.leg or 1, #legs do
+		local leg = legs[index]
+		if index == (route.leg or 1) and leg.kind == "walk" then
+			if leg.instance ~= here then return nil end
+			total = total + math.sqrt((leg.wx - px) ^ 2 + (leg.wy - py) ^ 2) / WalkSpeed()
+		else
+			total = total + (tonumber(leg.cost) or 0)
+		end
+	end
+	return total
+end
+
+local lastSaid = 0
+function ns.BetterWay()
+	local settings = ns.Settings()
+	local route = ns.Route()
+	local step = ns.CurrentStep()
+	if not (settings and settings.enabled and settings.gps and step) then return false end
+	if Clean(Safe(UnitOnTaxi, "player")) or Clean(Safe(InCombatLockdown)) then return false end
+	-- (a crossing or the stone under way: kept)
+	local leg = route.legs and route.legs[route.leg or 1]
+	if leg and leg.kind ~= "walk" then return false end
+	local left = LeftOfWay(route)
+	if not left then return false end
+	local wx, wy, instance = ns.WorldOf(step.map, step.x, step.y)
+	if not wx then return false end
+	local legs = ns.Plan({ wx = wx, wy = wy, instance = instance, map = step.map, x = step.x, y = step.y, title = step.title })
+	local cost = 0
+	if legs then
+		for _, each in ipairs(legs) do cost = cost + (tonumber(each.cost) or 0) end
+	else
+		local px, py, here = ns.Here()
+		if not px or here ~= instance then return false end
+		cost = math.sqrt((wx - px) ^ 2 + (wy - py) ^ 2) / WalkSpeed()
+	end
+	if cost >= left - math.max(BETTER_BY, left * BETTER_SHARE) then return false end
+	route.legs, route.leg = legs, 1
+	ns.Changed()
+	if GetTime() - lastSaid > SAY_EVERY then
+		lastSaid = GetTime()
+		W.Print(L.ROUTE_ADJUSTED)
+	end
+	return true
+end
+
+function ns.InitRouter()
+	local ticker
+	local function Watch()
+		local route = ns.Route()
+		local on = route and route.steps and route.steps[1] ~= nil
+		if on and not ticker then
+			ticker = C_Timer.NewTicker(LOOK_EVERY, function() ns.BetterWay() end)
+		elseif not on and ticker then
+			ticker:Cancel()
+			ticker = nil
+		end
+	end
+	if ns.OnChanged then ns.OnChanged(Watch) end
+	Watch()
+	local events = CreateFrame("Frame")
+	for _, event in ipairs({ "ZONE_CHANGED_NEW_AREA", "PLAYER_CONTROL_GAINED" }) do pcall(events.RegisterEvent, events, event) end
+	events:SetScript("OnEvent", function() C_Timer.After(2, function() ns.BetterWay() end) end)
 end
 
 -- The words of a leg: what to do, where.
@@ -187,7 +303,7 @@ local function LegSeconds(leg, distance)
 	-- (in the air: what is left of the flight)
 	if leg.kind == "fly" and distance and Clean(Safe(UnitOnTaxi, "player")) then return distance / FLIGHT_SPEED end
 	if leg.kind == "hearth" and leg.readyAt then return HEARTH_CAST + math.max(0, leg.readyAt - GetTime()) end
-	return tonumber(leg.cost) or 0
+	return tonumber(leg.seconds) or tonumber(leg.cost) or 0
 end
 
 -- To the step followed, from the distance to the point the arrow shows (a leg's or the step's): the leg followed,

@@ -128,7 +128,7 @@ function WandererMapsPinMixin:OnMouseClickAction(button)
 	if button == "LeftButton" and IsShiftKeyDown() then return ns.ChatLink(place.map, place.x, place.y, place.title) end
 	local step = data.kind == "step"
 	if button == "LeftButton" and IsControlKeyDown() then
-		if step then return end
+		if step then return W.Print(L.STEP_ALREADY) end
 		local added = ns.AddStep(place.map, place.x, place.y, place.title)
 		if added then
 			ns.TouchNote(place)

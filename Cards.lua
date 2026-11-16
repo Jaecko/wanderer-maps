@@ -116,7 +116,7 @@ function FillNote()
 	card.keysLine:SetShown(not pad)
 	card.box:SetHeight(24 + (pad and 0 or 6 + U.Measure(card.keysLine, "GetStringHeight", 24)))
 	if card.note then
-		rows[#rows + 1] = { text = L.REMOVE, role = "bad", run = function()
+		rows[#rows + 1] = { text = L.DELETE, role = "bad", run = function()
 			local place = card.note
 			card:Hide()
 			if place then ns.RemoveNote(place) end
@@ -282,10 +282,10 @@ local function KeptCard(owner, index)
 	local function Still(fn) return function() if ns.KeptRoutes()[index] == kept then fn() end end end
 	Skin.ActionCard(owner, { title = kept.name, atCursor = true, width = 280, rows = {
 		{ text = L.KEPT_LOAD, glyph = "chevron", onClick = Still(function() ns.LoadKeptAsked(index) end) },
-		{ text = L.KEPT_RENAME, glyph = "reload", onClick = Still(function()
+		{ text = L.KEPT_RENAME, glyph = "pencil", onClick = Still(function()
 			Skin.AskText(L.KEPT_RENAME_ASK, kept.name, function(name) ns.RenameKept(index, name) end, ns.KEPT_LETTERS)
 		end) },
-		{ text = L.REMOVE, glyph = "close", role = "bad", onClick = Still(function()
+		{ text = L.DELETE, glyph = "close", role = "bad", onClick = Still(function()
 			Skin.Ask(L.KEPT_REMOVE_ASK:format(kept.name), function() if ns.KeptRoutes()[index] == kept then ns.RemoveKept(index) end end)
 		end) },
 	} })

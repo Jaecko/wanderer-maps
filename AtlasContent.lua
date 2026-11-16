@@ -13,10 +13,18 @@ local GOLD = Skin and Skin.COLORS.gold
 -- (a controller in hand: the tips say its buttons, not the mouse's)
 local function UsingPad() return U.UsingPad and U.UsingPad() or false end
 local Safe, Clean = U and U.Safe, U and U.Clean
+-- (an item's modified click, the game's way: Shift links it, Ctrl tries it on; true when handled)
+local ItemClick = U and rawget(U, "ItemClick") or function(link)
+	if link and IsModifiedClick() and HandleModifiedItemClick then
+		HandleModifiedItemClick(link)
+		return true
+	end
+end
 
 local PIN = 22
 local NEAR, CLOSE = 1.6, 2.5 -- the zooms where the small places, then their names, come
 local MAX_RESULTS, MAX_QUEST_ROWS, MAX_STEPS = 7, 11, 9
+local MAX_NOTE_RESULTS = 3 -- (your notes found: a few, the places keep their room)
 local SEARCH_WIDTH, LEGEND_HEIGHT, LEGEND_GAP = 250, 26, 14
 local TABS_HEIGHT = 34
 -- (the kit's row heights and tints when this Wanderer has them; read raw: an older one simply has none)
@@ -24,7 +32,8 @@ local KIT_ROW = Skin and rawget(Skin, "ROW")
 local JOURNAL_ROW = KIT_ROW and KIT_ROW.compact or 24
 local QUEST_ROW = KIT_ROW and KIT_ROW.normal or 34 -- (a quest of the panel: its step)
 local HOVER, CHOSEN = Skin and rawget(Skin, "HOVER") or 0.05, Skin and rawget(Skin, "CHOSEN") or 0.1
-local MAX_REWARDS, REWARD_SIZE = 7, 28
+local MAX_REWARDS, REWARD_SIZE = 12, 28
+local REWARD_ROOM = 7 * (REWARD_SIZE + 4) -- (more than seven: smaller, all on the line)
 local QUEST_TEXT_LINES = 9
 local HEADER_LEFT = 118 -- (the map's name, after the window's title)
 local DOT_GAP = 12
@@ -105,6 +114,37 @@ end
 local function QuestDone(id)
 	local api = C_QuestLog and C_QuestLog.IsComplete
 	return api and Clean(Safe(api, id)) and true or false
+end
+
+-- Failed (its time ran out, the one to escort fell...).
+local function QuestFailed(id, info)
+	local api = C_QuestLog and C_QuestLog.IsFailed
+	if api and Clean(Safe(api, id)) then return true end
+	return type(info) == "table" and Clean(info.isFailed) and true or false
+end
+
+-- The quest's kind as the game's log tells it, short after its level, as Classic writes it: "+" elite or for a
+-- group ("[30+]"), "d" a dungeon ("[30d]"), "r" a raid ("[60r]"); "" for none. group: the players advised.
+local function TagMark(id, group)
+	local log = C_QuestLog
+	if not (id and log) then return "" end
+	local tagID, elite
+	local info = log.GetQuestTagInfo and Safe(log.GetQuestTagInfo, id)
+	if type(info) == "table" then
+		tagID, elite = Clean(info.tagID), Clean(info.isElite)
+	elseif not log.GetQuestTagInfo and _G.GetQuestTagInfo then
+		tagID = Clean((Safe(_G.GetQuestTagInfo, id)))
+	end
+	local consts = _G.Constants and _G.Constants.QuestConsts or {}
+	local tags = _G.Enum and _G.Enum.QuestTag or {}
+	if tagID and tagID == (consts.QUEST_INFO_RAID_ID or tags.Raid or 62) then return "r" end
+	if tagID and tagID == (consts.QUEST_INFO_DUNGEON_ID or tags.Dungeon or 81) then return "d" end
+	if Clean(Safe(log.IsEliteQuest, id)) then elite = true end
+	group = tonumber(group) or Clean(Safe(log.GetSuggestedGroupSize, id))
+	if elite or (tagID and tagID == (consts.QUEST_INFO_ELITE_ID or tags.Group or 1)) or (type(group) == "number" and group > 1) then
+		return "+"
+	end
+	return ""
 end
 
 local function Objectives(id)
@@ -195,7 +235,7 @@ local function AddQuests(list, map)
 		marked[mark.quest] = marked[mark.quest] or mark
 		-- (who takes it back is one person: a mark; what it asks for is a zone)
 		if mark.kind == "turnin" then
-			Add(list, { kind = "objective", quest = mark.quest, x = mark.x, y = mark.y, title = mark.title, file = COMPLETE_ICON, level = 35,
+			Add(list, { kind = "objective", quest = mark.quest, x = mark.x, y = mark.y, title = mark.title, file = COMPLETE_ICON, level = 35, turnIn = true,
 				tip = { mark.name or mark.title, { mark.title, GOLD[1], GOLD[2], GOLD[3] }, ns.TipLine(L.ATLAS_QUEST_DONE, "blue") } })
 		end
 	end
@@ -399,11 +439,25 @@ local function QuestOf(data)
 	end
 end
 
+-- Shift and a click on a quest: its link in the chat's box, as in the game's log (never sent: yours to send).
+local function LinkQuest(id, title)
+	if not id then return false end
+	local link = _G.GetQuestLink and Clean(Safe(_G.GetQuestLink, id))
+	if not link and C_QuestLog and C_QuestLog.GetQuestLink then link = Clean(Safe(C_QuestLog.GetQuestLink, id)) end
+	if type(link) ~= "string" or link == "" then
+		link = ("|cffffff00|Hquest:%d:-1|h[%s]|h|r"):format(id, title or QuestTitle(id) or "?")
+	end
+	return U.ChatInsert(link)
+end
+
 local function PinClick(self, button)
 	local data = self.data
 	if not data then return end
 	-- (a right click goes back to the map around, as on the game's map; your own steps and notes keep their card)
 	if button == "RightButton" and data.kind ~= "step" and data.kind ~= "note" then return ns.AtlasUp() end
+	if IsShiftKeyDown() and (data.kind == "objective" or data.kind == "quest") and data.quest then
+		return LinkQuest(data.quest, data.title)
+	end
 	if data.kind == "objective" then
 		local quest = QuestOf(data)
 		if quest then ChoosePlace(quest) end
@@ -523,8 +577,8 @@ local function Dress(pin, data)
 		if data.file and data.file:find("Icons\\") then icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
 	end
 	if data.faded then icon:SetDesaturated(true) end
-	-- (one quest chosen: its marks stand out, the others step back)
-	local other = data.kind == "objective" and chosen ~= nil and chosen.quest ~= nil and chosen.quest ~= data.quest
+	-- (one quest chosen: its marks stand out, the others step back; a quest to hand in stays plain to see)
+	local other = data.kind == "objective" and not data.turnIn and chosen ~= nil and chosen.quest ~= nil and chosen.quest ~= data.quest
 	pin:SetAlpha(data.faded and 0.65 or other and 0.35 or 1)
 	pin.number:SetText(data.step and data.index or data.count or "")
 	local isChosen = chosen ~= nil and chosen.kind == data.kind and chosen.title == data.title
@@ -541,7 +595,41 @@ end
 -- Where you stand on the map shown (kept by ns.AtlasFollow), the route's line starts there.
 local youAt
 
--- The routes's dots: from you to your next step when you are on this map, then between the steps of this map.
+-- The part of a line (map coordinates) inside this map's square, or nil when it never crosses it.
+local function Clip(x1, y1, x2, y2)
+	local low, high = 0, 1
+	local dx, dy = x2 - x1, y2 - y1
+	for _, side in ipairs({ { -dx, x1 }, { dx, 1 - x1 }, { -dy, y1 }, { dy, 1 - y1 } }) do
+		local p, q = side[1], side[2]
+		if p == 0 then
+			if q < 0 then return nil end
+		else
+			local r = q / p
+			if p < 0 then
+				if r > high then return nil end
+				if r > low then low = r end
+			else
+				if r < low then return nil end
+				if r < high then high = r end
+			end
+		end
+	end
+	return x1 + dx * low, y1 + dy * low, x1 + dx * high, y1 + dy * high
+end
+
+-- A place on the map shown even past its edges (the line toward a step in another zone): nil on another continent.
+local function Toward(place, map)
+	if place.map == map then return place.x, place.y end
+	local wx, wy, instance = U.MapToWorld(place.map, place.x, place.y)
+	if not (wx and C_Map.GetMapPosFromWorldPos and CreateVector2D) then return nil end
+	local _, point = Safe(C_Map.GetMapPosFromWorldPos, instance, CreateVector2D(wx, wy), map)
+	if type(point) ~= "table" then return nil end
+	return Clean(point.x), Clean(point.y)
+end
+
+-- The route's dots: from you to your next step, then from step to step, wherever they are: the part of each leg
+-- that crosses the map shown (a step in another zone: the line goes to this map's edge, toward it). A step on
+-- another continent cuts the line there.
 local function DrawRouteDots()
 	ui.dots = ui.dots or {}
 	local used = 0
@@ -549,41 +637,45 @@ local function DrawRouteDots()
 	local route = ns.Route()
 	-- (a creature's habitat shown: the map is its alone)
 	if HabitatHere() then map = nil end
-	local last = youAt and { ns.AtlasProject(youAt[1], youAt[2]) } or nil
+	local function Dots(x1, y1, x2, y2)
+		local ax, ay, bx, by = Clip(x1, y1, x2, y2)
+		if not ax then return end
+		local p1x, p1y = ns.AtlasProject(ax, ay)
+		local p2x, p2y = ns.AtlasProject(bx, by)
+		local length = math.sqrt((p2x - p1x) ^ 2 + (p2y - p1y) ^ 2)
+		local count = math.min(90, math.floor(length / DOT_GAP))
+		for at = 1, count do
+			used = used + 1
+			local dot = ui.dots[used]
+			if not dot then
+				dot = ui.overlay:CreateTexture(nil, "ARTWORK")
+				dot:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.9)
+				dot:SetSize(4, 4)
+				ui.dots[used] = dot
+			end
+			local share = at / (count + 1)
+			dot:ClearAllPoints()
+			dot:SetPoint("CENTER", ui.overlay, "TOPLEFT", p1x + (p2x - p1x) * share, -(p1y + (p2y - p1y) * share))
+			dot:Show()
+		end
+	end
 	if map and Shown("route") then
+		local last = youAt and { youAt[1], youAt[2] } or nil
 		for number, step in ipairs(route.steps) do
-			local open = number >= route.current and not step.done
-			local x, y
-			if open then x, y = OnThisMap(step, map) end
-			if open and not x then
-				-- (a step on another map: the line stops there)
-				last = nil
-			elseif open then
-				local px, py = ns.AtlasProject(x, y)
-				if last then
-					local length = math.sqrt((px - last[1]) ^ 2 + (py - last[2]) ^ 2)
-					local count = math.min(90, math.floor(length / DOT_GAP))
-					for at = 1, count do
-						used = used + 1
-						local dot = ui.dots[used]
-						if not dot then
-							dot = ui.overlay:CreateTexture(nil, "ARTWORK")
-							dot:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.9)
-							dot:SetSize(4, 4)
-							ui.dots[used] = dot
-						end
-						local share = at / (count + 1)
-						dot:ClearAllPoints()
-						dot:SetPoint("CENTER", ui.overlay, "TOPLEFT", last[1] + (px - last[1]) * share, -(last[2] + (py - last[2]) * share))
-						dot:Show()
-					end
+			if number >= route.current and not step.done then
+				local x, y = Toward(step, map)
+				if x and y then
+					if last then Dots(last[1], last[2], x, y) end
+					last = { x, y }
+				else
+					last = nil
 				end
-				last = { px, py }
 			end
 		end
 	end
 	for at = used + 1, #ui.dots do ui.dots[at]:Hide() end
 end
+ns.AtlasClipLine = Clip -- (tests)
 
 -- Every pin where the canvas says (a pan or a zoom: nothing is read again).
 function ns.AtlasPlacePins()
@@ -934,7 +1026,7 @@ local function Position(unit, map)
 end
 
 -- One of your group on the atlas (the at-th shown), made the first time it is needed.
-local MEMBER_SIZE, MEMBER_FILL = 14, 10
+local MEMBER_SIZE, MEMBER_FILL = 18, 13
 local ROUND_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local function Disc(member, size, layer)
 	local texture = member:CreateTexture(nil, "OVERLAY", nil, layer)
@@ -1024,22 +1116,27 @@ function ns.AtlasFollow()
 		cx, cy = Clean(cx), Clean(cy)
 	end
 	if InBounds(cx, cy) and (cx ~= 0 or cy ~= 0) then PlaceMark(ui.corpse, cx, cy) else ui.corpse:Hide() end
-	-- Under the mouse: the zone, lit as the game lights it, and where.
+	-- Under the mouse: the zone, lit as the game lights it, and where. Elsewhere: where you stand on this map.
+	local overMap = false
 	if ui.overCanvas and ui.coords then
 		local _, _, mx, my = ns.AtlasCursor()
 		if mx then
+			overMap = true
 			local _, name = ns.AtlasChildAt(mx, my)
 			ui.coords:SetText((name and name .. "   " or "") .. ("%.1f  %.1f"):format(mx * 100, my * 100))
 			ns.AtlasHighlight(map, mx, my)
 			ns.AtlasHoverZone(mx, my)
 		else
-			ui.coords:SetText("")
 			ns.AtlasHighlight()
 			ns.AtlasHoverZone()
 		end
 	else
 		ns.AtlasHighlight()
 		ns.AtlasHoverZone()
+	end
+	if ui.coords and not overMap then
+		local you = _G.YOU and (Skin.Colorize(_G.YOU, "muted") .. "   ") or ""
+		ui.coords:SetText(x and (you .. ("%.1f  %.1f"):format(x * 100, y * 100)) or "")
 	end
 end
 
@@ -1082,6 +1179,12 @@ function ns.AtlasClick(button, x, y)
 	local map = ns.AtlasMap()
 	if button == "RightButton" then return ns.AtlasUp() end
 	if IsAltKeyDown() then return ns.NoteCard(map, x, y) end
+	-- (Ctrl+click, as on the game's map: a pin there, here a step more of the route)
+	if IsControlKeyDown() then
+		local added = ns.AddStep(map, x, y)
+		if added then W.Print(L.ADDED_STEP:format(added.title)) end
+		return
+	end
 	local child = ns.AtlasChildAt(x, y)
 	if child then return ns.AtlasSetMap(child) end
 	-- (a zone of a quest: that quest; several there: the next one, click after click)
@@ -1132,6 +1235,16 @@ local function SetWatched(id, on)
 	if not (id and log) then return end
 	if on and log.AddQuestWatch then
 		Safe(log.AddQuestWatch, id)
+		-- (refused: the game follows as many as it allows; said, unless it was refused for another reason)
+		if not Watched(id) then
+			local consts = _G.Constants and _G.Constants.QuestWatchConsts
+			local most = tonumber(consts and consts.MAX_QUEST_WATCHES) or tonumber(_G.MAX_WATCHABLE_QUESTS)
+			local count = log.GetNumQuestWatches and Clean(Safe(log.GetNumQuestWatches))
+			if not (most and type(count) == "number" and count < most) then
+				local words = _G.QUEST_WATCH_TOO_MANY
+				W.Print((most and type(words) == "string" and words:find("%d", 1, true)) and words:format(most) or L.ATLAS_WATCH_FULL)
+			end
+		end
 	elseif not on and log.RemoveQuestWatch then
 		Safe(log.RemoveQuestWatch, id)
 	end
@@ -1205,6 +1318,11 @@ local function QuestRow(index_)
 	row:SetScript("OnClick", function(self, button)
 		local data = self.data
 		if not data then return end
+		-- (more than the panel holds: the journal has them all)
+		if data.kind == "more" then
+			Skin.Play("click")
+			return ns.AtlasSetPanel("journal", true)
+		end
 		-- (a creature your quests ask for: its card in Wanderer Bestiary, beside the atlas; again: closed)
 		if data.kind == "creature" then
 			local bestiary = Bestiary()
@@ -1220,6 +1338,7 @@ local function QuestRow(index_)
 			return ns.AtlasDrawPanel()
 		end
 		if button == "RightButton" then return ns.AtlasQuestCard(data.quest, data.title, data, self) end
+		if IsShiftKeyDown() and data.quest then return LinkQuest(data.quest, data.title) end
 		ChoosePlace(data)
 		ns.AtlasFocus(data.x, data.y)
 	end)
@@ -1243,8 +1362,14 @@ local function DrawOverview()
 	ui.placeTitle:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
 	ui.about:SetText(map and not Far(map) and ns.ZoneFacts(map) or "")
 	local shown = 0
+	-- (more than the panel holds: the last line says how many more, a click opens the journal)
+	local bestiary = Bestiary()
+	local total = 0
+	for _, data in ipairs(pins) do if data.kind == "quest" then total = total + 1 end end
+	for _, unit in ipairs(bestiary and hunted or {}) do if bestiary.Known(unit) then total = total + 1 end end
+	local room = total > MAX_QUEST_ROWS and MAX_QUEST_ROWS - 1 or MAX_QUEST_ROWS
 	for _, data in ipairs(pins) do
-		if data.kind == "quest" and shown < MAX_QUEST_ROWS then
+		if data.kind == "quest" and shown < room then
 			shown = shown + 1
 			local row = QuestRow(shown)
 			row.data = data
@@ -1260,10 +1385,9 @@ local function DrawOverview()
 		end
 	end
 	-- Below, the creatures they ask for here (with Wanderer Bestiary): a click opens their card beside.
-	local bestiary = Bestiary()
 	local open = bestiary and bestiary.Shown(ns.AtlasFrame())
 	for _, unit in ipairs(bestiary and hunted or {}) do
-		if shown < MAX_QUEST_ROWS and bestiary.Known(unit) then
+		if shown < room and bestiary.Known(unit) then
 			shown = shown + 1
 			local row = QuestRow(shown)
 			row.data = { kind = "creature", unit = unit, title = bestiary.Name(unit) }
@@ -1276,6 +1400,19 @@ local function DrawOverview()
 			row.text:SetText(row.data.title)
 			row:Show()
 		end
+	end
+	if total > room then
+		shown = shown + 1
+		local row = QuestRow(shown)
+		row.data = { kind = "more" }
+		row.padRight = false
+		row.selected = false
+		Paint(row, false)
+		row.watch:Hide()
+		row.icon:SetTexCoord(0, 1, 0, 1)
+		row.icon:SetTexture(nil)
+		row.text:SetText(Skin.Colorize(L.ATLAS_MORE_QUESTS:format(total - room), "kicker"))
+		row:Show()
 	end
 	if shown == 0 then ui.objectives:SetText(L.ATLAS_NO_QUEST) end
 end
@@ -1323,7 +1460,9 @@ local function JournalEntries()
 			if Clean(info.isHeader) then
 				out[#out + 1] = { header = title }
 			elseif title and Clean(info.questID) then
-				out[#out + 1] = { id = Clean(info.questID), title = title, level = Clean(info.level) }
+				local id = Clean(info.questID)
+				out[#out + 1] = { id = id, title = title, level = Clean(info.level), tag = TagMark(id, Clean(info.suggestedGroup)),
+					failed = QuestFailed(id, info) }
 			end
 		end
 	end
@@ -1359,6 +1498,7 @@ local function JournalRow(at)
 		local entry = self.entry
 		if not (entry and entry.id) then return end
 		if button == "RightButton" then return ns.AtlasQuestCard(entry.id, entry.title, QuestOf({ quest = entry.id }), self) end
+		if IsShiftKeyDown() then return LinkQuest(entry.id, entry.title) end
 		OpenJournalQuest(entry)
 	end)
 	ui.journalRows[at] = row
@@ -1396,14 +1536,26 @@ function DrawJournal()
 				row.icon:Show()
 				row.icon:SetTexture(done and COMPLETE_ICON or OBJECTIVE_ICON)
 				Paint(row, false)
-				row.text:SetText(entry.level and ("[" .. entry.level .. "] " .. entry.title) or entry.title)
-				if entry.level then row.text:SetTextColor(W.QuestLevelColor(entry.level)) else row.text:SetTextColor(Skin.COLORS.text[1], Skin.COLORS.text[2], Skin.COLORS.text[3]) end
+				row.text:SetText(entry.level and ("[" .. entry.level .. (entry.tag or "") .. "] " .. entry.title) or entry.title)
+				if entry.failed then
+					-- (failed: in red, said in place of its count, as the game's log says it)
+					local bad = Skin.COLORS.bad
+					row.text:SetTextColor(bad[1], bad[2], bad[3])
+				elseif entry.level then
+					row.text:SetTextColor(W.QuestLevelColor(entry.level))
+				else
+					row.text:SetTextColor(Skin.COLORS.text[1], Skin.COLORS.text[2], Skin.COLORS.text[3])
+				end
 				local total, finished = 0, 0
 				for _, item in ipairs(Objectives(entry.id)) do
 					total = total + 1
 					if item.done then finished = finished + 1 end
 				end
-				row.count:SetText(total > 0 and (finished .. "/" .. total) or "")
+				if entry.failed then
+					row.count:SetText(Skin.Colorize(_G.FAILED or "", "bad"))
+				else
+					row.count:SetText(total > 0 and (finished .. "/" .. total) or "")
+				end
 			end
 		end
 	end
@@ -1415,11 +1567,12 @@ end
 
 local function WithSelected(id, read)
 	local log = C_QuestLog
-	if not (log and log.SetSelectedQuest and log.GetSelectedQuest) then return read() end
-	local before = Clean(Safe(log.GetSelectedQuest))
+	if not (log and log.SetSelectedQuest) then return read() end
+	-- (a game that cannot say which one was selected: this one selected, nothing to put back)
+	local before = log.GetSelectedQuest and Clean(Safe(log.GetSelectedQuest))
 	if before ~= id then Safe(log.SetSelectedQuest, id) end
 	local one, two = read()
-	if before ~= id then Safe(log.SetSelectedQuest, before or 0) end
+	if before ~= id and log.GetSelectedQuest then Safe(log.SetSelectedQuest, before or 0) end
 	return one, two
 end
 
@@ -1438,6 +1591,10 @@ local function RewardIcon(at)
 	icon:EnableMouse(true)
 	icon.padTip = true -- (a controller stops on it to read it)
 	Skin.ItemTooltip(icon, function(self) return self.item end)
+	-- (a modified click, the game's way: Shift links it, Ctrl tries it on)
+	icon:SetScript("OnMouseUp", function(self, button)
+		if button == "LeftButton" and self:IsMouseOver() then ItemClick((select(2, U.ItemInfo(self.item)))) end
+	end)
 	ui.rewardIcons[at] = icon
 	return icon
 end
@@ -1452,12 +1609,16 @@ function DrawRewards(id)
 		for at = 1, Clean(Safe(GetNumQuestLogChoices, id, false)) or 0 do Read(Safe(GetQuestLogChoiceInfo, at)) end
 		return Clean(Safe(GetQuestLogRewardMoney, id)) or 0
 	end)
+	local size = math.min(REWARD_SIZE, math.floor(REWARD_ROOM / math.max(1, #list)) - 4)
 	for at = 1, MAX_REWARDS do
 		local reward = list[at]
 		local icon = (reward or ui.rewardIcons[at]) and RewardIcon(at)
 		if icon then
 			icon:SetShown(reward ~= nil)
 			if reward then
+				icon:SetSize(size, size)
+				icon:ClearAllPoints()
+				icon:SetPoint("LEFT", (at - 1) * (size + 4), 0)
 				icon.item = reward.item
 				icon:Set(reward.texture, reward.quality)
 			end
@@ -1473,20 +1634,41 @@ function Pushable(id)
 	return allowed and Clean(Safe(IsInGroup)) and true or false
 end
 
+-- (the game acts on the quest selected in its log: the one you had selected put back after)
 local function ShareQuest(id)
-	local ok = pcall(function()
-		C_QuestLog.SetSelectedQuest(id)
-		QuestLogPushQuest()
-	end)
+	local log = C_QuestLog
+	local ok = log and log.SetSelectedQuest and QuestLogPushQuest and WithSelected(id, function() return pcall(QuestLogPushQuest) end)
 	if not ok then W.Print(L.ATLAS_REFUSED) end
 end
 
+-- The items that go with a quest abandoned (the game's own question names them): their names, or nil.
+local function AbandonItems(id)
+	local log = C_QuestLog
+	if not (log and log.SetSelectedQuest and log.SetAbandonQuest and log.GetAbandonQuestItems) then return nil end
+	local list = WithSelected(id, function()
+		Safe(log.SetAbandonQuest)
+		return Safe(log.GetAbandonQuestItems)
+	end)
+	if type(list) ~= "table" then return nil end
+	local names = {}
+	for _, item in ipairs(list) do
+		item = Clean(item)
+		if item then names[#names + 1] = U.ItemName(item) or ("#" .. tostring(item)) end
+	end
+	return names[1] and table.concat(names, ", ") or nil
+end
+
 local function AbandonQuest(id, title)
-	Skin.Ask(L.ATLAS_ABANDON_ASK:format(title), function()
-		local ok = pcall(function()
-			C_QuestLog.SetSelectedQuest(id)
-			C_QuestLog.SetAbandonQuest()
-			C_QuestLog.AbandonQuest()
+	local items = AbandonItems(id)
+	local question = L.ATLAS_ABANDON_ASK:format(title)
+	if items then question = question .. "\n" .. L.ABANDON_ITEMS:format(items) end
+	Skin.Ask(question, function()
+		local log = C_QuestLog
+		local ok = log and log.SetSelectedQuest and WithSelected(id, function()
+			return pcall(function()
+				C_QuestLog.SetAbandonQuest()
+				C_QuestLog.AbandonQuest()
+			end)
 		end)
 		if not ok then return W.Print(L.ATLAS_REFUSED) end
 		chosen = nil
@@ -1494,7 +1676,9 @@ local function AbandonQuest(id, title)
 	end)
 end
 
--- A quest of the list, right click (the top button with a controller): where it is, share it, give it up.
+-- A quest of the list, right click (the top button with a controller): where it is, then the quest's own actions,
+-- the same as on Wanderer Quests' list and window (its sheet, the way to who takes it, the chat, share, follow or
+-- not, abandon); without Wanderer Quests, open, share and abandon here.
 function ns.AtlasQuestCard(id, title, data, row)
 	if not id then return end
 	local rows = {}
@@ -1503,11 +1687,16 @@ function ns.AtlasQuestCard(id, title, data, row)
 		rows[#rows + 1] = { text = L.ATLAS_GO, glyph = "chevron", onClick = function() ns.GoTo(place) end }
 	end
 	local quests = Quests()
-	if quests and quests.Reveal then
-		rows[#rows + 1] = { text = L.ATLAS_OPEN_QUEST, glyph = "chevron", onClick = function() quests.Reveal(id) end }
+	local shared = quests and quests.Actions and quests.Actions(id, title, "atlas")
+	if type(shared) == "table" and shared[1] then
+		for _, entry in ipairs(shared) do rows[#rows + 1] = entry end
+	else
+		if quests and quests.Reveal then
+			rows[#rows + 1] = { text = L.ATLAS_OPEN_QUEST, glyph = "chevron", onClick = function() quests.Reveal(id) end }
+		end
+		if Pushable(id) then rows[#rows + 1] = { text = L.ATLAS_SHARE, glyph = "plus", onClick = function() ShareQuest(id) end } end
+		rows[#rows + 1] = { text = L.ATLAS_ABANDON, glyph = "close", onClick = function() AbandonQuest(id, title or "") end }
 	end
-	if Pushable(id) then rows[#rows + 1] = { text = L.ATLAS_SHARE, glyph = "plus", onClick = function() ShareQuest(id) end } end
-	rows[#rows + 1] = { text = L.ATLAS_ABANDON, glyph = "close", onClick = function() AbandonQuest(id, title or "") end }
 	local beside = row ~= nil and U.UsingPad and U.UsingPad()
 	Skin.ActionCard(beside and row or nil, { atCursor = not beside, title = title, rows = rows })
 end
@@ -1629,22 +1818,49 @@ local function Index()
 	return index
 end
 
+-- What the search finds, at most MAX_RESULTS (your notes first, a few only: the places always have room), and how
+-- many more were found.
 local function Results()
-	local out = {}
-	if query == "" then return out end
+	local out, more, notes = {}, 0, 0
+	if query == "" then return out, more end
 	local folded = U.Fold(query)
 	for _, note in ipairs(ns.Notes()) do
-		if U.Matches(note.title or "", query, folded) then out[#out + 1] = { name = note.title, map = note.map, x = note.x, y = note.y } end
+		if U.Matches(note.title or "", query, folded) then
+			if notes < MAX_NOTE_RESULTS then
+				notes = notes + 1
+				out[#out + 1] = { name = note.title, map = note.map, x = note.x, y = note.y }
+			else
+				more = more + 1
+			end
+		end
 	end
 	for _, place in ipairs(Index()) do
-		if #out >= MAX_RESULTS then break end
-		if U.Matches(place.name, query, folded) then out[#out + 1] = place end
+		if U.Matches(place.name, query, folded) then
+			if #out < MAX_RESULTS then out[#out + 1] = place else more = more + 1 end
+		end
 	end
-	return out
+	return out, more
 end
 
 local function DrawResults()
-	local list = Results()
+	local list, more = Results()
+	-- (more found than shown: their number on a last line, as the results look, nothing to click; the search to be
+	-- told more; nothing found: said there)
+	local none = query ~= "" and not list[1]
+	if (more > 0 or none) and not ui.resultsMore then
+		ui.resultsMore = Skin.SmallButton(ui.side, "", function() end, nil, 22)
+		ui.resultsMore:EnableMouse(false)
+		ui.resultsMore.padIgnored = true
+	end
+	if ui.resultsMore then
+		ui.resultsMore:SetShown(more > 0 or none)
+		if more > 0 or none then
+			ui.resultsMore:ClearAllPoints()
+			ui.resultsMore:SetPoint("TOPLEFT", ui.search, "BOTTOMLEFT", 0, -2 - #list * 23)
+			ui.resultsMore:SetLabel(Skin.Colorize(none and L.SEARCH_NOTHING or "+" .. more, "muted"))
+			ui.resultsMore:SetWidth(SEARCH_WIDTH)
+		end
+	end
 	ui.results = ui.results or {}
 	for at = 1, MAX_RESULTS do
 		local place = list[at]
@@ -1750,9 +1966,13 @@ local function DrawStrip()
 	local route = ns.Route()
 	ui.stepRows = ui.stepRows or {}
 	local previous
-	for at = 1, MAX_STEPS do
+	-- (a long route: nine steps shown at a time, the one followed always among them, two done ones before it)
+	local count = #route.steps
+	local first = math.max(1, math.min((route.current or 1) - 2, count - MAX_STEPS + 1))
+	for slot = 1, MAX_STEPS do
+		local at = first + slot - 1
 		local step = route.steps[at]
-		local row = ui.stepRows[at]
+		local row = ui.stepRows[slot]
 		if step and not row then
 			row = Skin.SmallButton(ui.strip, "", function(self, button)
 				if button == "RightButton" then return ns.RemoveStep(self.index) end
@@ -1760,7 +1980,7 @@ local function DrawStrip()
 			end, function() return UsingPad() and L.ATLAS_STEP_TIP_PAD or L.ATLAS_STEP_TIP end, 26)
 			row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 			row.padRight, row.padRightWord = true, L.PAD_REMOVE -- (the top button: its right click, the step taken off)
-			ui.stepRows[at] = row
+			ui.stepRows[slot] = row
 		end
 		if row then
 			row:SetShown(step ~= nil)
@@ -1846,7 +2066,7 @@ function ns.AtlasBuildContent(window, margin, top, rightWidth, strip)
 	ui.zonePool = CreateTexturePool(ui.world, "ARTWORK", 1)
 	ui.zoneLines = {}
 	-- The heading: where you are looking, one way up, the quiet actions.
-	ui.upButton = Skin.GlyphButton(window, "back", 14, L.ATLAS_UP, function() ns.AtlasUp() end)
+	ui.upButton = Skin.GlyphButton(window, "up", 14, L.ATLAS_UP, function() ns.AtlasUp() end)
 	ui.upButton:SetPoint("TOPLEFT", window, "TOPLEFT", margin + HEADER_LEFT, -margin - 8)
 	ui.mapName = Skin.Text(window, "GameTooltipHeaderText", "gold")
 	ui.mapName:SetPoint("LEFT", ui.upButton, "RIGHT", 6, 0)
@@ -1888,7 +2108,7 @@ function ns.AtlasBuildContent(window, margin, top, rightWidth, strip)
 	ui.kicker:SetPoint("TOPLEFT", 0, -TABS_HEIGHT - 2)
 	ui.kicker:SetWidth(rightWidth - 30)
 	ui.kicker:SetJustifyH("LEFT")
-	ui.backButton = Skin.GlyphButton(card, "close", 12, L.ATLAS_BACK, function()
+	ui.backButton = Skin.GlyphButton(card, "back", 12, L.ATLAS_BACK, function()
 		-- (a creature's habitat: gone, the map back as you had it)
 		if HabitatHere() then return ns.AtlasHabitat(nil) end
 		chosen, letGo = nil, true
@@ -1991,7 +2211,7 @@ function ns.AtlasBuildContent(window, margin, top, rightWidth, strip)
 	zoomBox:SetFrameLevel(ui.overlay:GetFrameLevel() + 90)
 	local plus = Skin.GlyphButton(zoomBox, "plus", 14, L.ATLAS_ZOOM_IN, function() ns.AtlasNotch(1) end)
 	plus:SetPoint("LEFT")
-	local minus = Skin.GlyphButton(zoomBox, "down", 14, L.ATLAS_ZOOM_OUT, function() ns.AtlasNotch(-1) end)
+	local minus = Skin.GlyphButton(zoomBox, "minus", 14, L.ATLAS_ZOOM_OUT, function() ns.AtlasNotch(-1) end)
 	minus:SetPoint("LEFT", plus, "RIGHT", 2, 0)
 	local whole = Skin.GlyphButton(zoomBox, "home", 14, L.ATLAS_ZOOM_ALL, function() ns.AtlasReset() end)
 	whole:SetPoint("LEFT", minus, "RIGHT", 2, 0)
@@ -2036,10 +2256,14 @@ function ns.AtlasBuildContent(window, margin, top, rightWidth, strip)
 	-- its name under the mouse.
 	ui.party = {}
 	ui.memberHolder = marks
-	ui.corpse = marks:CreateTexture(nil, "OVERLAY")
-	ui.corpse:SetSize(22, 22)
-	ui.corpse:SetTexture("Interface\\Minimap\\POIIcons")
-	if GetPOITextureCoords then ui.corpse:SetTexCoord(GetPOITextureCoords(57)) end
+	-- Your corpse: plain to see over any map, the skull alone (its own dark edge), above the other marks.
+	ui.corpse = CreateFrame("Frame", nil, marks)
+	ui.corpse:SetSize(24, 24)
+	ui.corpse:SetFrameLevel(marks:GetFrameLevel() + 30)
+	local skull = ui.corpse:CreateTexture(nil, "ARTWORK")
+	skull:SetAllPoints()
+	-- (the game's skull: the minimap's sheet holds no corpse at the place once used, it drew a strip of icons)
+	skull:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-Skull")
 	ui.corpse:Hide()
 	ui.marks = { ui.you, ui.corpse }
 	for at = 1, 4 do ns.AtlasMember(at) end
@@ -2050,4 +2274,16 @@ function ns.AtlasDumpContent(out)
 	out.zones = zones and true or false
 	local map = ns.AtlasMap()
 	out.questsShown = map and #QuestsOn(map) or 0
+	-- (the route's line: why it is drawn or not)
+	local route = ns.Route()
+	local dots = 0
+	for _, dot in ipairs(ui and ui.dots or {}) do if dot:IsShown() then dots = dots + 1 end end
+	out.route = { current = route.current, layer = Shown("route") and true or false, habitat = HabitatHere() and true or false,
+		you = youAt and (youAt[1] .. "," .. youAt[2]) or "none", dots = dots, steps = {} }
+	for number, step in ipairs(route.steps) do
+		local x, y
+		if map then x, y = OnThisMap(step, map) end
+		out.route.steps[number] = ("%s %s,%s done=%s here=%s"):format(tostring(step.map), tostring(step.x), tostring(step.y),
+			tostring(step.done), x and (x .. "," .. y) or "off")
+	end
 end

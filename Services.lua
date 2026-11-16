@@ -178,8 +178,8 @@ end
 function WandererMapsServicePinMixin:OnMouseUp(button, upInside)
 	local place = self.data and self.data.place
 	if not place or upInside == false or button ~= "LeftButton" then return end
-	W.Skin.Play("click")
-	ns.GoTo(place)
+	-- (the family's grammar: Shift+click a map link, Ctrl+click to the route, else followed)
+	ns.PlaceClick(place)
 end
 
 local provider

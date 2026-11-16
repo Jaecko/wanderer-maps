@@ -38,13 +38,16 @@ end
 
 local function Entries()
 	local entries = {}
+	local pad = U.UsingPad and U.UsingPad()
 	if tab == "route" then
 		local route = ns.Route()
 		for index, step in ipairs(route.steps) do
 			local current = index == route.current
 			-- (its whole words under the mouse: a long one is cut in its row)
 			local tip = { ns.StepWords(step), U.MapName(step.map) or "" }
-			if step.quest and ns.CanOpenQuest() then tip[3] = L.STEP_QUEST_TIP end
+			if step.quest and ns.CanOpenQuest() then tip[#tip + 1] = L.STEP_QUEST_TIP end
+			-- (the keys of every place: a mouse's)
+			if not pad then tip[#tip + 1] = L.ROW_KEYS_STEP end
 			entries[#entries + 1] = { name = StepName(index, step), place = step, index = index, current = current,
 				color = current and Skin.COLORS.gold or step.done and Skin.COLORS.muted or nil, tip = tip }
 			-- (the way to the step followed: its legs, the one followed in gold)
@@ -60,7 +63,7 @@ local function Entries()
 		for index, note in ipairs(ns.SortedNotes()) do
 			entries[#entries + 1] = { name = ns.NoteIconMarkup(note.icon) .. " " .. note.title, place = note, index = index,
 				color = ns.NoteOld(note) and Skin.COLORS.muted or nil,
-				tip = { note.title, U.MapName(note.map) or "", L[ns.NoteIconSpec(note.icon).word] } }
+				tip = { note.title, U.MapName(note.map) or "", L[ns.NoteIconSpec(note.icon).word], not pad and L.ROW_KEYS_NOTE or nil } }
 		end
 	end
 	return entries
@@ -166,7 +169,12 @@ local function Create()
 				return More(entry)
 			end
 			if entry.leg then return end
-			if tab == "route" then ns.FollowStep(entry.index) else ns.GoTo(entry.place) end
+			-- (the family's grammar for a place: Shift+click a map link, Ctrl+click to the route; a step is on it already)
+			if tab == "notes" then return ns.PlaceClick(entry.place, nil, true) end
+			local step = entry.place
+			if IsShiftKeyDown() then return ns.ChatLink(step.map, step.x, step.y, step.title) end
+			if IsControlKeyDown() then return W.Print(L.STEP_ALREADY) end
+			ns.FollowStep(entry.index)
 		end,
 		onDraw = Draw,
 		-- (its right click: the row's choices, the pad's top button)
@@ -214,7 +222,7 @@ local function Create()
 	for _, kind in ipairs(ns.NEAREST_ORDER) do
 		local spec = ns.SERVICE_KINDS[kind]
 		local button = Skin.SmallButton(nearest, "|T" .. spec.file .. ":14:14|t " .. L[spec.word], function(self)
-			if self.place then ns.GoTo(self.place) end
+			if self.place then ns.PlaceClick(self.place) end
 		end, function(self)
 			if not self.place then return nil end
 			return { self.place.title, (U.MapName(self.place.map) or "") .. U.SEPARATOR .. L.DISTANCE:format(math.floor(self.distance + 0.5)),
@@ -291,8 +299,8 @@ end
 
 function ns.Init()
 	if not (W and W.RegisterExtension) then return end
-	-- (API 15: the kit's "⋯" and cards, its progress lines, the screen-fitted scale, Util.AfterFight)
-	if (W.API or 1) < 16 then return W.Print(L.NEEDS_WANDERER) end
+	-- (API 21: the kit's cards, Skin.Resizable for the atlas, the screen-fitted scale, Util.AfterFight)
+	if (W.API or 1) < 21 then return W.Print(L.NEEDS_WANDERER) end
 	W.RegisterExtension({
 		key = "maps",
 		addon = ADDON,
@@ -301,7 +309,7 @@ function ns.Init()
 		news = L.NEWS_LINES,
 		defaults = { enabled = true, followGame = true, gps = true, boats = true, gamePin = true, minimap = true, arrow = true, arrowQuiet = true,
 			world = true, unexplored = true, explored = true, zoneFacts = true, services = false, flightNotice = false,
-			hearth = false, atlas = true, flightLine = true, corpse = true, noteRadius = 250 },
+			hearth = false, travel = "balanced", atlas = true, flightLine = true, corpse = true, noteRadius = 250 },
 		ranges = { ["maps.noteRadius"] = { 25, 250, 25 } },
 		-- (the flight line names the destination: Wanderer's travel card leaves it the title, keeps the fade and the camera)
 		takes = { flightCard = function()
@@ -346,6 +354,10 @@ function ns.Init()
 			local gpsOn = o.IsOn("maps", "gps")
 			o.Under(o.Checkbox("maps", "boats", L.BOATS, L.BOATS_DESC, ns.Replan), gps, gpsOn)
 			o.Under(o.Checkbox("maps", "hearth", L.HEARTH_OPTION, L.HEARTH_OPTION_DESC, ns.Replan), gps, gpsOn)
+			o.Under(o.Dropdown("MAPS_TRAVEL", L.TRAVEL, L.TRAVEL_DESC, "balanced",
+				{ { "fast", L.TRAVEL_FAST }, { "balanced", L.TRAVEL_BALANCED }, { "cheap", L.TRAVEL_CHEAP } },
+				function() return ns.Settings() and ns.Settings().travel or "balanced" end,
+				function(value) if ns.Settings() then ns.Settings().travel = value; ns.Replan() end end), gps, gpsOn)
 
 			o.Header(L.SECTION_WORLD_MAP)
 			Check("atlas", L.ATLAS_OPTION, L.ATLAS_OPTION_DESC, ns.Changed)
@@ -361,7 +373,9 @@ function ns.Init()
 		end,
 	})
 	SLASH_WANDERERMAPS1 = "/wmaps"
-	SLASH_WANDERERMAPS2 = "/watlas"
+	-- (its short word opens the atlas itself)
+	_G.SLASH_WANDERERATLAS1 = "/watlas"
+	SlashCmdList.WANDERERATLAS = function() ns.AtlasToggle() end
 	SlashCmdList.WANDERERMAPS = function(text)
 		text = (text or ""):lower()
 		if text:find("^%s*atlas%s*dump") then
@@ -373,6 +387,7 @@ function ns.Init()
 	end
 	ns.OnChanged(Draw)
 	ns.InitTransport()
+	if ns.InitRouter then ns.InitRouter() end
 	ns.InitPins()
 	ns.InitServices()
 	ns.InitFlights()
@@ -405,6 +420,12 @@ function ns.Init()
 		Go = function(map, x, y, title, info)
 			if not On() then return U.Pin(map, x, y) and true or false end
 			return ns.GoTo({ map = map, x = x, y = y, title = title }, info)
+		end,
+		-- (a place clicked in another addon, the family's one grammar: Shift+click a map link in the chat, Ctrl+click a
+		-- step of the route, else followed; switched off: the game's own pin)
+		Click = function(map, x, y, title, info)
+			if not On() then return U.Pin(map, x, y) and true or false end
+			return ns.PlaceClick({ map = map, x = x, y = y, title = title }, info)
 		end,
 		AddStep = function(map, x, y, title, info)
 			if not On() then

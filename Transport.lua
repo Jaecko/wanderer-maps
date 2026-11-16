@@ -14,6 +14,9 @@ local U = W and W.Util
 local Safe, Clean = U and U.Safe, U and U.Clean
 
 local UNREACHABLE = (Enum and Enum.FlightPathState and Enum.FlightPathState.Unreachable) or 2
+local CURRENT = (Enum and Enum.FlightPathState and Enum.FlightPathState.Current) or 0
+local FARE_PER_YARD = 0.5 -- copper: a flight's fare guessed from its length, until your flights teach better
+local fareRate -- (copper a yard, from your known fares: worked out once, again after a flight master's map)
 local HEARTHSTONE = 6948
 
 -- The account's knowledge of the world (the nodes' places are everyone's).
@@ -22,6 +25,7 @@ function ns.Data()
 	local data = WandererMapsAccountDB
 	data.taxi = type(data.taxi) == "table" and data.taxi or {}
 	data.learned = type(data.learned) == "table" and data.learned or {}
+	data.fares = type(data.fares) == "table" and data.fares or {}
 	return data
 end
 
@@ -48,8 +52,22 @@ function ns.LearnTaxi()
 	local db = ns.DB()
 	db.metTaxi = type(db.metTaxi) == "table" and db.metTaxi or {}
 	local count = 0
-	if C_TaxiMap and C_TaxiMap.GetAllTaxiNodes then
-		for _, node in ipairs(Safe(C_TaxiMap.GetAllTaxiNodes, map) or {}) do
+	local nodes = C_TaxiMap and C_TaxiMap.GetAllTaxiNodes and Safe(C_TaxiMap.GetAllTaxiNodes, map) or {}
+	-- (the fares from here, as the flight master asks them: the whole trip, the stops on the way counted)
+	local here
+	for _, node in ipairs(nodes) do
+		if Clean(node.state) == CURRENT then here = Clean(node.nodeID) end
+	end
+	local fares = ns.Data().fares
+	if here then
+		for _, node in ipairs(nodes) do
+			local id, slot = Clean(node.nodeID), Clean(node.slotIndex)
+			local fare = id and id ~= here and slot and _G.TaxiNodeCost and Clean(Safe(_G.TaxiNodeCost, slot))
+			if type(fare) == "number" and fare > 0 then fares[here .. ":" .. id] = fare fareRate = nil end
+		end
+	end
+	if nodes[1] then
+		for _, node in ipairs(nodes) do
 			local id, name, position, state = Clean(node.nodeID), Clean(node.name), node.position, Clean(node.state)
 			local x, y = type(position) == "table" and Clean(position.x), type(position) == "table" and Clean(position.y)
 			if id and name and x and y then
@@ -69,6 +87,31 @@ function ns.LearnTaxi()
 	end
 	-- (the way planned again: the new nodes may shorten it)
 	ns.Replan()
+end
+
+-- A flight's fare in copper from one node to another: the one a flight master asked (either way), else guessed
+-- from its length (yards) at the rate your known fares give, else at a modest rate. Second value: true when known.
+function ns.Fare(from, to, yards)
+	local fares = ns.Data().fares
+	local known = fares[from .. ":" .. to] or fares[to .. ":" .. from]
+	if known then return known, true end
+	if not yards then return nil, false end
+	if not fareRate then
+		local taxi, paid, length = ns.Data().taxi, 0, 0
+		for key, fare in pairs(fares) do
+			local a, b = key:match("^(%d+):(%d+)$")
+			local na, nb = taxi[tonumber(a)], taxi[tonumber(b)]
+			local ax, ay, ai, bx, by, bi
+			if na then ax, ay, ai = ns.WorldOf(na.map, na.x, na.y) end
+			if nb then bx, by, bi = ns.WorldOf(nb.map, nb.x, nb.y) end
+			if ax and bx and ai == bi then
+				paid, length = paid + fare, length + math.sqrt((ax - bx) ^ 2 + (ay - by) ^ 2)
+			end
+		end
+		fareRate = (length > 500 and paid > 0) and paid / length or FARE_PER_YARD
+	end
+	local rate = fareRate
+	return math.floor(yards * rate + 0.5), false
 end
 
 -- The flight nodes this character may fly to: { id, name, map, x, y, wx, wy, instance }.

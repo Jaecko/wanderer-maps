@@ -44,10 +44,26 @@ local function Project(wx, wy, instance, at)
 	return -math.sin(angle) * d, math.cos(angle) * d, within
 end
 
+-- A pin named under the mouse (pin.tip: its words), the minimap still taking the clicks (a game that cannot let
+-- them through: no name, the clicks kept).
+local function Named(pin)
+	if not pin.SetMouseClickEnabled then return end
+	pin:EnableMouse(true)
+	pin:SetMouseClickEnabled(false)
+	pin:SetScript("OnEnter", function(self)
+		if not self.tip then return end
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText(self.tip, GOLD[1], GOLD[2], GOLD[3])
+		GameTooltip:Show()
+	end)
+	pin:SetScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
 local function Pin(index)
 	local pin = pins[index]
 	if pin then return pin end
 	pin = CreateFrame("Frame", nil, overlay)
+	Named(pin)
 	pin:SetSize(PIN, PIN)
 	pin.icon = pin:CreateTexture(nil, "ARTWORK")
 	pin.icon:SetAllPoints()
@@ -96,6 +112,7 @@ local function Notes(at)
 			local pin = notePins[count]
 			if not pin then
 				pin = CreateFrame("Frame", nil, overlay)
+				Named(pin)
 				pin:SetSize(NOTE, NOTE)
 				pin.icon = pin:CreateTexture(nil, "ARTWORK")
 				pin.icon:SetAllPoints()
@@ -105,6 +122,7 @@ local function Notes(at)
 				pin.key = note.icon or "place"
 				ns.NoteIcon(pin.icon, note.icon)
 			end
+			pin.tip = note.title
 			pin:SetAlpha(NOTE_ALPHA)
 			pin:ClearAllPoints()
 			pin:SetPoint("CENTER", Minimap, "CENTER", x, y)
@@ -149,7 +167,8 @@ local function Look()
 			local current = index == route.current
 			ns.StepIcon(pin.icon, current)
 			pin.number:SetText(tostring(index))
-			pin:SetAlpha(step.done and 0.35 or within and 1 or 0.55)
+			pin.tip = index .. ". " .. (ns.StepWords and ns.StepWords(step) or step.title or "")
+			pin:SetAlpha(step.done and 0.35 or (within or current) and 1 or 0.55)
 			pin:ClearAllPoints()
 			pin:SetPoint("CENTER", Minimap, "CENTER", x, y)
 			pin:Show()

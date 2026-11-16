@@ -20,7 +20,7 @@ local STEP = 0.1 -- seconds between two looks
 local ARRIVE = 12 -- yards: reached
 local FAR_REACH = 70 -- yards: landed from a flight, a crossing, the stone
 local WIDTH, HEIGHT, ARROW_SIZE = 200, 110, 40
-local NEAR_ALPHA = 0.55
+local NEAR_ALPHA = 0.9
 local ON_COURSE, OFF_COURSE = math.rad(20), math.rad(90) -- heading off by less: gold; by more: amber
 local QUIET_AFTER, QUIET_ALPHA, QUIET_FADE = 3, 0.35, 0.4 -- seconds on course, its faded alpha, seconds to fade
 local ARRIVED_FOR = 0.8 -- seconds the check is shown, a step reached
@@ -382,7 +382,7 @@ local function Look()
 	local angle, distance, flying = ns.Bearing(followed)
 	if not angle then
 		-- (where the game keeps your place to itself: the zone of the point, a click opens its map)
-		arrow.texture:SetAlpha(0.3)
+		arrow.texture:SetAlpha(0.65)
 		arrow.texture:SetVertexColor(Skin.COLORS.soft[1], Skin.COLORS.soft[2], Skin.COLORS.soft[3])
 		local zone = followed.map and U.MapName(followed.map)
 		arrow.elsewhere = zone and followed.map or nil
@@ -418,10 +418,14 @@ local function Create()
 	arrow:SetFrameStrata("MEDIUM")
 	arrow:SetClampedToScreen(true)
 	arrow:EnableMouse(true)
+	-- (the mouse caught only on the glyph and the name over it: a camera turn begun beside it stays the camera's)
+	arrow:SetHitRectInsets((WIDTH - 80) / 2, (WIDTH - 80) / 2, 0, HEIGHT - 82)
 	arrow:SetMovable(true)
 	arrow:RegisterForDrag("LeftButton")
 	arrow:SetScript("OnMouseDown", function(self) self.dragged = false end)
 	arrow:SetScript("OnDragStart", function(self)
+		-- (never moved in a fight)
+		if InCombatLockdown() then return end
 		self.dragged = true
 		self:StartMoving()
 	end)

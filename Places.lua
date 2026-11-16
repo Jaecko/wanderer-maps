@@ -15,8 +15,6 @@ local MAX_NOTES, MAX_STEPS = 200, 40
 -- This character's settings of Wanderer Maps (nil: Wanderer has none for it yet).
 function ns.Settings() return W and W.Settings and W.Settings("maps") or nil end
 
--- The saved table, checked once (the arrow and the minimap read it ten times a second; it only changes when the
--- game loads it).
 -- Tooltips ---------------------------------------------------------------------------------------------------
 -- A tooltip in the kit's lines ({ title (gold), { words, r, g, b } or words, ... }) for a frame not ours to hook
 -- (a map pin, a row whose side changes): the kit's own.
@@ -28,14 +26,32 @@ function ns.TipLine(words, role)
 end
 
 local checked
+-- A place as kept (a note, a step): its map and its point; one the save lost (a broken file) is let go, never read ten
+-- times a second by the arrow and the minimap.
+local function Placed(place)
+	return type(place) == "table" and tonumber(place.map) ~= nil and tonumber(place.x) ~= nil and tonumber(place.y) ~= nil
+end
+-- (at: a place of the list, the one followed: still on the same one after)
+local function OnlyPlaced(list, at)
+	for index = #list, 1, -1 do
+		if not Placed(list[index]) then
+			table.remove(list, index)
+			if at and index < at then at = at - 1 end
+		end
+	end
+	return list, at
+end
+-- The saved table, checked once (the arrow and the minimap read it ten times a second; it only changes when the
+-- game loads it).
 function ns.DB()
 	if checked ~= nil and checked == WandererMapsDB then return checked end
 	WandererMapsDB = type(WandererMapsDB) == "table" and WandererMapsDB or {}
 	local db = WandererMapsDB
-	db.notes = type(db.notes) == "table" and db.notes or {}
+	db.notes = OnlyPlaced(type(db.notes) == "table" and db.notes or {})
 	db.route = type(db.route) == "table" and db.route or { steps = {}, current = 1 }
-	db.route.steps = type(db.route.steps) == "table" and db.route.steps or {}
-	db.route.current = math.max(1, math.floor(tonumber(db.route.current) or 1))
+	local current = math.max(1, math.floor(tonumber(db.route.current) or 1))
+	db.route.steps, current = OnlyPlaced(type(db.route.steps) == "table" and db.route.steps or {}, current)
+	db.route.current = math.max(1, current)
 	if type(db.route.legs) ~= "table" then db.route.legs = nil end
 	db.route.leg = math.max(1, math.floor(tonumber(db.route.leg) or 1))
 	if type(db.route.planned) ~= "string" then db.route.planned = nil end
@@ -470,6 +486,24 @@ function ns.GoTo(place, info)
 	return true
 end
 
+-- A place clicked anywhere ({ map, x, y, title }: a row, a pin, a service, another addon's line), the family's one
+-- grammar, as on Wanderer Quests' sheet: Shift+click a map link in the chat, Ctrl+click a step more of the route,
+-- else followed. info: why it goes there; quiet: the caller already played the click. False when it is no place.
+function ns.PlaceClick(place, info, quiet)
+	if not (type(place) == "table" and tonumber(place.map) and tonumber(place.x) and tonumber(place.y)) then return false end
+	if IsShiftKeyDown() then return ns.ChatLink(place.map, place.x, place.y, place.title) and true or false end
+	if IsControlKeyDown() then
+		local added = ns.AddStep(place.map, place.x, place.y, place.title, info)
+		if added then
+			ns.TouchNote(place)
+			W.Print(L.ADDED_STEP:format(added.title))
+		end
+		return true
+	end
+	if not quiet then Skin.Play("click") end
+	return ns.GoTo(place, info)
+end
+
 -- A step followed (one done already: followed again all the same).
 function ns.FollowStep(index)
 	local route = ns.Route()
@@ -675,7 +709,9 @@ function ns.LoadKept(index)
 	if not (kept and type(kept.steps) == "table" and kept.steps[1]) then return false end
 	local route = ns.Route()
 	route.steps, route.current, route.legs, route.leg, route.planned = {}, 1, nil, 1, nil
-	for at, step in ipairs(kept.steps) do route.steps[at] = StepCopy(step) end
+	for _, step in ipairs(kept.steps) do
+		if Placed(step) then route.steps[#route.steps + 1] = StepCopy(step) end
+	end
 	ns.PlanLegs()
 	ns.Changed()
 	W.Print(L.KEPT_LOADED:format(kept.name, #route.steps))
