@@ -777,7 +777,9 @@ end
 -- The blue is one even color, in strips of a fine grid side by side; over it each quest has its own thin outline,
 -- so each zone reads apart from the others, even where they overlap.
 
--- Each pack raises a soft hill; hills close together melt into one; a zone is what stands above a level. The outline
+-- Each thing a quest asks for (a creature, an object) has its own zone: four creatures in four places, four zones,
+-- each with its outline and its name under the mouse. Each pack raises a soft hill; hills close together melt into
+-- one; a zone is what stands above a level. The outline
 -- follows that level between the grid's points, so it is a curve and not a staircase.
 local lastZones -- (nothing is worked out again while your quests have not moved)
 
@@ -794,7 +796,7 @@ function ns.AtlasReadZones(marks)
 		return
 	end
 	local wide, tall = GRID_WIDE, math.max(1, math.floor(GRID_WIDE * mapTall / mapWide + 0.5))
-	local cells, quests, fields = {}, {}, {}
+	local cells, quests, fields, fieldQuest, fieldWord = {}, {}, {}, {}, {}
 	local reachSquared = ZONE_REACH * ZONE_REACH
 	for _, mark in ipairs(marks) do
 		if mark.kind ~= "turnin" then
@@ -805,8 +807,11 @@ function ns.AtlasReadZones(marks)
 				info.said[word] = true
 				info.words[#info.words + 1] = word
 			end
-			local field = fields[mark.quest] or {}
-			fields[mark.quest] = field
+			-- (one field for each thing asked: its own zone)
+			local thing = tostring(mark.quest) .. "|" .. tostring(mark.unit or mark.name or word or "")
+			local field = fields[thing] or {}
+			fields[thing] = field
+			fieldQuest[thing], fieldWord[thing] = mark.quest, fieldWord[thing] or word
 			local px, py = mark.x * wide, mark.y * tall
 			for y = math.max(0, math.floor(py - ZONE_REACH)), math.min(tall - 1, math.ceil(py + ZONE_REACH)) do
 				for x = math.max(0, math.floor(px - ZONE_REACH)), math.min(wide - 1, math.ceil(px + ZONE_REACH)) do
@@ -820,7 +825,8 @@ function ns.AtlasReadZones(marks)
 			end
 		end
 	end
-	for quest, field in pairs(fields) do
+	for fieldKey, field in pairs(fields) do
+		local quest = fieldQuest[fieldKey]
 		for key, height in pairs(field) do
 			if height >= ZONE_LEVEL then
 				local owners = cells[key] or {}
@@ -830,7 +836,8 @@ function ns.AtlasReadZones(marks)
 		end
 	end
 	if next(quests) then
-		zones = { wide = wide, tall = tall, cells = cells, quests = quests, fields = fields, signature = signature }
+		zones = { wide = wide, tall = tall, cells = cells, quests = quests, fields = fields, fieldQuest = fieldQuest, fieldWord = fieldWord,
+			signature = signature }
 		lastZones = zones
 	end
 end
@@ -872,11 +879,12 @@ local function DrawFill(picked)
 	end
 end
 
--- One outline, one quest: where its zone stops, wherever the others stand.
-local function DrawOutline(quest, used, picked)
+-- One outline, one thing asked: where its zone stops, wherever the others stand.
+local function DrawOutline(fieldKey, used, picked)
 	local mapWide, mapTall = ns.AtlasMapSize()
 	local cellWide, cellTall = mapWide / zones.wide, mapTall / zones.tall
-	local field, wide, tall = zones.fields[quest], zones.wide, zones.tall
+	local field, wide, tall = zones.fields[fieldKey], zones.wide, zones.tall
+	local quest = zones.fieldQuest[fieldKey]
 	local function Height(x, y)
 		if x < 0 or y < 0 or x >= wide or y >= tall then return 0 end
 		return field[y * wide + x] or 0
@@ -937,10 +945,13 @@ function ns.AtlasDrawZones()
 	zonesDrawn = now
 	DrawFill(picked)
 	local used = 0
-	for quest in pairs(zones.quests) do
-		if quest ~= picked then used = DrawOutline(quest, used, picked) end
+	-- (the chosen quest's outlines last: over the others)
+	for fieldKey, quest in pairs(zones.fieldQuest) do
+		if quest ~= picked then used = DrawOutline(fieldKey, used, picked) end
 	end
-	if picked and zones.quests[picked] then used = DrawOutline(picked, used, picked) end
+	for fieldKey, quest in pairs(zones.fieldQuest) do
+		if picked and quest == picked then used = DrawOutline(fieldKey, used, picked) end
+	end
 	for at = used + 1, #ui.zoneLines do ui.zoneLines[at]:Hide() end
 end
 
@@ -970,14 +981,29 @@ function ns.AtlasHoverZone(x, y)
 		return
 	end
 	local ids = SortedOwners(owners)
-	local key = table.concat(ids, ",")
+	-- (each quest with the very things asked whose zone this is: where to go for what)
+	local cell = math.floor(y * zones.tall) * zones.wide + math.floor(x * zones.wide)
+	local here = {}
+	for fieldKey, quest in pairs(zones.fieldQuest or {}) do
+		local word = zones.fieldWord[fieldKey]
+		if word and (zones.fields[fieldKey][cell] or 0) >= ZONE_LEVEL then
+			here[quest] = here[quest] or {}
+			table.insert(here[quest], word)
+		end
+	end
+	local parts = {}
+	for _, id in ipairs(ids) do
+		if here[id] then table.sort(here[id]) end
+		parts[#parts + 1] = tostring(id) .. ":" .. table.concat(here[id] or {}, "/")
+	end
+	local key = table.concat(parts, ",")
 	if key == hoveredZone then return end
 	hoveredZone = key
 	local lines = {}
 	for _, id in ipairs(ids) do
 		local info = zones.quests[id]
 		lines[#lines + 1] = { info.title, GOLD[1], GOLD[2], GOLD[3] }
-		for _, word in ipairs(info.words) do lines[#lines + 1] = word end
+		for _, word in ipairs(here[id] or info.words) do lines[#lines + 1] = word end
 	end
 	lines[#lines + 1] = ns.TipLine(L.ATLAS_QUEST_OPEN, "blue")
 	-- (the controller's cursor is not the mouse's: beside the map)
