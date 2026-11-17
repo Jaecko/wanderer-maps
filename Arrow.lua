@@ -318,8 +318,8 @@ end
 -- The arrow's color by how far off your heading is: gold on course, soft a little off, amber behind you.
 local function Heading(rotation)
 	local off = math.abs((rotation + math.pi) % (2 * math.pi) - math.pi)
-	local c, alpha = Skin.COLORS.gold, 1
-	if off > OFF_COURSE then c = Skin.COLORS.warn elseif off > ON_COURSE then c, alpha = Skin.COLORS.soft, 0.9 end
+	local c, alpha = (rawget(Skin, "SCREEN_COLORS") or Skin.COLORS).gold, 1
+	if off > OFF_COURSE then c = (rawget(Skin, "SCREEN_COLORS") or Skin.COLORS).warn elseif off > ON_COURSE then c, alpha = (rawget(Skin, "SCREEN_COLORS") or Skin.COLORS).soft, 0.9 end
 	arrow.texture:SetVertexColor(c[1], c[2], c[3])
 	return off <= ON_COURSE, alpha
 end
@@ -383,7 +383,7 @@ local function Look()
 	if not angle then
 		-- (where the game keeps your place to itself: the zone of the point, a click opens its map)
 		arrow.texture:SetAlpha(0.65)
-		arrow.texture:SetVertexColor(Skin.COLORS.soft[1], Skin.COLORS.soft[2], Skin.COLORS.soft[3])
+		arrow.texture:SetVertexColor((rawget(Skin, "SCREEN_COLORS") or Skin.COLORS).soft[1], (rawget(Skin, "SCREEN_COLORS") or Skin.COLORS).soft[2], (rawget(Skin, "SCREEN_COLORS") or Skin.COLORS).soft[3])
 		local zone = followed.map and U.MapName(followed.map)
 		arrow.elsewhere = zone and followed.map or nil
 		arrow.distance:SetText(zone and L.ELSEWHERE_IN:format(zone) or L.UNKNOWN_HERE)
@@ -458,12 +458,12 @@ local function Create()
 		end
 	end
 	if arrow.SetIgnoreParentAlpha then arrow:SetIgnoreParentAlpha(true) end
-	arrow.title = Skin.Text(arrow, "GameFontNormal", "gold")
+	arrow.title = (rawget(Skin, "ScreenText") or Skin.Text)(arrow, "GameFontNormal", "gold")
 	arrow.title:SetPoint("TOP", arrow, "TOP", 0, -2)
 	arrow.title:SetWidth(WIDTH - 8)
 	arrow.title:SetJustifyH("CENTER")
 	if arrow.title.SetWordWrap then arrow.title:SetWordWrap(false) end
-	arrow.sub = Skin.Text(arrow, "GameFontHighlightSmall", "muted")
+	arrow.sub = (rawget(Skin, "ScreenText") or Skin.Text)(arrow, "GameFontHighlightSmall", "muted")
 	arrow.sub:SetPoint("TOP", arrow.title, "BOTTOM", 0, -2)
 	arrow.sub:SetWidth(WIDTH - 8)
 	arrow.sub:SetJustifyH("CENTER")
@@ -472,18 +472,18 @@ local function Create()
 	arrow.texture:SetSize(ARROW_SIZE, ARROW_SIZE)
 	arrow.texture:SetPoint("CENTER", arrow, "CENTER", 0, -4)
 	arrow.texture:SetTexture(ns.QUEST_ARROW)
-	arrow.texture:SetVertexColor(Skin.COLORS.gold[1], Skin.COLORS.gold[2], Skin.COLORS.gold[3])
+	arrow.texture:SetVertexColor((rawget(Skin, "SCREEN_COLORS") or Skin.COLORS).gold[1], (rawget(Skin, "SCREEN_COLORS") or Skin.COLORS).gold[2], (rawget(Skin, "SCREEN_COLORS") or Skin.COLORS).gold[3])
 	arrow.check = Skin.Glyph(arrow, "check", 26)
 	arrow.check:SetPoint("CENTER", arrow, "CENTER", 0, -4)
-	arrow.check:SetVertexColor(Skin.COLORS.good[1], Skin.COLORS.good[2], Skin.COLORS.good[3])
+	arrow.check:SetVertexColor((rawget(Skin, "SCREEN_COLORS") or Skin.COLORS).good[1], (rawget(Skin, "SCREEN_COLORS") or Skin.COLORS).good[2], (rawget(Skin, "SCREEN_COLORS") or Skin.COLORS).good[3])
 	arrow.check:Hide()
-	arrow.distance = Skin.Text(arrow, "GameFontHighlightSmall", "text")
+	arrow.distance = (rawget(Skin, "ScreenText") or Skin.Text)(arrow, "GameFontHighlightSmall", "text")
 	arrow.distance:SetPoint("BOTTOM", arrow, "BOTTOM", 0, 16)
 	arrow.distance:SetWidth(WIDTH - 8)
 	arrow.distance:SetJustifyH("CENTER")
 	if arrow.distance.SetWordWrap then arrow.distance:SetWordWrap(false) end
 	-- (the step's number and the whole route's time, quieter, under the distance)
-	arrow.steps = Skin.Text(arrow, "GameFontHighlightSmall", "muted")
+	arrow.steps = (rawget(Skin, "ScreenText") or Skin.Text)(arrow, "GameFontHighlightSmall", "muted")
 	arrow.steps:SetPoint("BOTTOM", arrow, "BOTTOM", 0, 2)
 	arrow.steps:SetWidth(WIDTH - 8)
 	arrow.steps:SetJustifyH("CENTER")

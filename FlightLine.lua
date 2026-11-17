@@ -13,7 +13,7 @@ local W = Wanderer
 local U = W and W.Util
 local Skin = W and W.Skin
 -- (the family's gold: its accents)
-local GOLD = Skin and Skin.COLORS.gold
+local GOLD = Skin and (rawget(Skin, "SCREEN_COLORS") or Skin.COLORS).gold
 local Safe, Clean = U and U.Safe, U and U.Clean
 
 local SPEED = 32 -- yards a second, a flight's
@@ -336,7 +336,7 @@ local function Dot(size, layer)
 end
 
 local function Paint(dot, passed)
-	local c = passed and Skin.COLORS.gold or Skin.COLORS.muted
+	local c = passed and (rawget(Skin, "SCREEN_COLORS") or Skin.COLORS).gold or (rawget(Skin, "SCREEN_COLORS") or Skin.COLORS).muted
 	dot:SetVertexColor(c[1], c[2], c[3])
 end
 
@@ -354,7 +354,7 @@ end
 local function Label(self, index, count, x, name)
 	local label = self.labels[index]
 	if not label then
-		label = Skin.Text(self, "GameTooltipText", "text")
+		label = (rawget(Skin, "ScreenText") or Skin.Text)(self, "GameTooltipText", "text")
 		if label.SetWordWrap then label:SetWordWrap(false) end
 		self.labels[index] = label
 	end
@@ -433,7 +433,7 @@ local function Draw(self)
 			local passed = flight.plan.at[index] <= flight.shown + 0.001
 			Paint(dot, passed)
 			local label = self.labels[index]
-			if label then label:SetTextColor(Skin.RGB(passed and "gold" or "text")) end
+			if label then label:SetTextColor((rawget(Skin, "ScreenRGB") or Skin.RGB)(passed and "gold" or "text")) end
 		end
 	end
 end
@@ -550,7 +550,7 @@ local function AddMapTime(slot)
 	local stops = ns.ReadFlight(slot)
 	if #stops < 2 then return end
 	local plan = ns.FlightPlan(stops)
-	local c = Skin.COLORS.text
+	local c = (rawget(Skin, "SCREEN_COLORS") or Skin.COLORS).text
 	GameTooltip:AddLine(L.FLIGHT_TIME:format((plan.guessed and "~" or "") .. ns.Clock(plan.total)), c[1], c[2], c[3])
 	GameTooltip:Show()
 end
