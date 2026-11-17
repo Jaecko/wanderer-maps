@@ -1185,7 +1185,9 @@ end
 
 -- pin: the place clicked; with a controller the card opens beside it (the mouse is not where the cursor is).
 function ns.AtlasPlaceCard(data, pin)
-	local place = data.place
+	-- (a pin with no place of its own, a quest's or a giver's reached by the controller: where it stands on this map,
+	-- as the panel takes it; else its card's rows would do nothing)
+	local place = data.place or (data.x and data.y and { map = ns.AtlasMap(), x = data.x, y = data.y, title = data.title }) or nil
 	local title = data.title
 	local rows = {
 		{ text = L.ATLAS_GO, glyph = "chevron", onClick = function() if place then ns.GoTo(place) end end },
@@ -1876,7 +1878,7 @@ local function Results()
 	if query == "" then return out, more end
 	local folded = U.Fold(query)
 	for _, note in ipairs(ns.Notes()) do
-		if U.Matches(note.title or "", query, folded) then
+		if U.Matches(note.title or "", folded, true) then
 			if notes < MAX_NOTE_RESULTS then
 				notes = notes + 1
 				out[#out + 1] = { name = note.title, map = note.map, x = note.x, y = note.y }
@@ -1886,7 +1888,7 @@ local function Results()
 		end
 	end
 	for _, place in ipairs(Index()) do
-		if U.Matches(place.name, query, folded) then
+		if U.Matches(place.name, folded, true) then
 			if #out < MAX_RESULTS then out[#out + 1] = place else more = more + 1 end
 		end
 	end
@@ -2021,6 +2023,9 @@ local function DrawStrip()
 	-- (a long route: nine steps shown at a time, the one followed always among them, two done ones before it)
 	local count = #route.steps
 	local first = math.max(1, math.min((route.current or 1) - 2, count - MAX_STEPS + 1))
+	-- (a narrow atlas: the steps that would run past the Clear button or the window's edge left out, from the last)
+	local wide = ui.strip:GetWidth() or 0
+	local room = wide > 0 and (wide - U.Measure(ui.stripTitle, "GetStringWidth", 60) - 10 - (ui.stripClear:GetWidth() or 0) - 10) or math.huge
 	for slot = 1, MAX_STEPS do
 		local at = first + slot - 1
 		local step = route.steps[at]
@@ -2035,10 +2040,14 @@ local function DrawStrip()
 			ui.stepRows[slot] = row
 		end
 		if row then
-			row:SetShown(step ~= nil)
 			if step then
 				row.step, row.index = step, at
 				row:SetLabel((at == route.current and Skin.Colorize(at, "gold") or at) .. "  " .. Short(step.title, 22))
+				room = room - (row:GetWidth() or 0) - (previous and 5 or 0)
+			end
+			local fits = step ~= nil and room >= 0
+			row:SetShown(fits)
+			if fits then
 				row:SetAlpha(step.done and 0.55 or 1)
 				row:ClearAllPoints()
 				if previous then row:SetPoint("LEFT", previous, "RIGHT", 5, 0) else row:SetPoint("LEFT", ui.stripTitle, "RIGHT", 10, 0) end
@@ -2051,6 +2060,7 @@ local function DrawStrip()
 	ui.stripEmpty:SetShown(not any)
 	ui.stripClear:SetShown(any)
 end
+ns.AtlasDrawStrip = DrawStrip
 
 -- Building, refreshing --------------------------------------------------------------------------------------------------
 

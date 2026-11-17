@@ -261,6 +261,8 @@ local function Relayout()
 	FitToCanvas()
 	Apply()
 	ns.AtlasFitLegend()
+	-- (the route's steps along the bottom: as many as the new width holds)
+	if ns.AtlasDrawStrip then ns.AtlasDrawStrip() end
 end
 ns.AtlasRelayout = Relayout
 
