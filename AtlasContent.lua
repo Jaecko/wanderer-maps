@@ -2119,11 +2119,13 @@ function ns.AtlasBuildContent(window, margin, top, rightWidth, strip)
 	ui.zoneLines = {}
 	-- The heading: where you are looking, one way up, the quiet actions.
 	ui.upButton = Skin.GlyphButton(window, "up", 14, L.ATLAS_UP, function() ns.AtlasUp() end)
-	ui.upButton:SetPoint("TOPLEFT", window, "TOPLEFT", margin + HEADER_LEFT, -margin - 8)
+	-- (the game look: the place's name and the actions on one line under the game's bar, level with the cog)
+	local gameLine = Skin.GameWindows and Skin.GameWindows()
+	ui.upButton:SetPoint("TOPLEFT", window, "TOPLEFT", margin + HEADER_LEFT, gameLine and -4 or (-margin - 8))
 	ui.mapName = Skin.Text(window, "GameTooltipHeaderText", "gold")
 	ui.mapName:SetPoint("LEFT", ui.upButton, "RIGHT", 6, 0)
 	local gameMap = Button(window, L.ATLAS_GAME_MAP, L.ATLAS_GAME_MAP_DESC, function() ns.AtlasToGameMap() end)
-	gameMap:SetPoint("TOPRIGHT", window, "TOPRIGHT", -62, -8)
+	gameMap:SetPoint("TOPRIGHT", window, "TOPRIGHT", -62, gameLine and -3 or -8)
 	gameMap.padBinding = function()
 		local map = _G.WorldMapFrame
 		return not (map and map:IsShown()) and "TOGGLEWORLDMAP" or nil
@@ -2157,6 +2159,12 @@ function ns.AtlasBuildContent(window, margin, top, rightWidth, strip)
 	ui.kicker = Skin.Text(card, "GameTooltipTextSmall", "kicker")
 	ui.tabs = Skin.Tabs(card, { { "map", L.ATLAS_TAB_MAP }, { "journal", L.ATLAS_TAB_JOURNAL } }, function(view) ns.AtlasSetPanel(view, true) end)
 	ui.tabs:SetPoint("TOPLEFT", 0, 0)
+	-- (the game look: the game's tabs stand on its divider, the panel's page under it)
+	if Skin.GameWindows and Skin.GameWindows() then
+		local base = Skin.Rule(card)
+		base:SetPoint("TOPLEFT", card, "TOPLEFT", 0, -30)
+		base:SetPoint("TOPRIGHT", card, "TOPRIGHT", 0, -30)
+	end
 	ui.kicker:SetPoint("TOPLEFT", 0, -TABS_HEIGHT - 2)
 	ui.kicker:SetWidth(rightWidth - 30)
 	ui.kicker:SetJustifyH("LEFT")

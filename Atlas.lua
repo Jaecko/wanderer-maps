@@ -20,6 +20,8 @@ local WIDTH_MOST, HEIGHT_MOST = 1320, 820
 local WIDTH_LEAST, HEIGHT_LEAST = 860, 540
 local SCREEN_SHARE = 0.88
 local TOP = 56
+local GAME_TOP = 36 -- (the game look: the heading in the game's bar, one line of actions over the map)
+local function Top() return (Skin.GameWindows and Skin.GameWindows()) and GAME_TOP or TOP end
 local RIGHT_COLUMN = 290
 local STRIP = 44
 local ZOOMS = { 1, 1.6, 2.5, 4, 6 }
@@ -253,7 +255,7 @@ local function Relayout()
 	ui.side:SetShown(not walking)
 	ui.card:SetShown(not walking)
 	ui.clip:ClearAllPoints()
-	ui.clip:SetPoint("TOPLEFT", window, "TOPLEFT", ui.margin, -TOP)
+	ui.clip:SetPoint("TOPLEFT", window, "TOPLEFT", ui.margin, -Top())
 	ui.clip:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -ui.margin - (walking and 0 or RIGHT_COLUMN + 10), ui.margin + STRIP)
 	window:SetAlpha(walking and 0.82 or 1)
 	FitToCanvas()
@@ -545,7 +547,7 @@ local function Create()
 		Skin.PadWindow(window, { click = PadClick, right = PadRight, wheel = PadWheel, alt = PadNote, onNavigate = PadLeave, owns = owns })
 	end
 	window:SetScript("OnUpdate", Tick)
-	ns.AtlasBuildContent(window, margin, TOP, RIGHT_COLUMN, STRIP)
+	ns.AtlasBuildContent(window, margin, Top(), RIGHT_COLUMN, STRIP)
 	-- (its size is yours: the kit's corner to pull, the game's own sign; its size and its place kept once let go)
 	local grip = Skin.Resizable(window, { minWidth = WIDTH_LEAST, minHeight = HEIGHT_LEAST, maxWidth = WIDTH_MOST + 500,
 		maxHeight = HEIGHT_MOST + 300, onResized = function(wide, tall)
