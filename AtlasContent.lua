@@ -2057,8 +2057,8 @@ end
 -- The trail: the maps around the one shown, from the widest (the world) down to it, each a click away, the one
 -- shown last, in its own color; a small chevron between two.
 local TRAIL_MOST = 6
-local function Crumb(index)
-	local crumb = ui.crumbs[index]
+local function Crumb(n)
+	local crumb = ui.crumbs[n]
 	if crumb then return crumb end
 	crumb = CreateFrame("Button", nil, ui.trail)
 	crumb:SetHeight(20)
@@ -2072,7 +2072,7 @@ local function Crumb(index)
 		Skin.Play("click")
 		ns.AtlasSetMap(self.map)
 	end)
-	ui.crumbs[index] = crumb
+	ui.crumbs[n] = crumb
 	return crumb
 end
 
@@ -2092,9 +2092,9 @@ local function DrawTrail(map, info)
 	local game = Skin.GameWindows and Skin.GameWindows()
 	local around, shown = game and "gold" or "label", game and "text" or "gold"
 	local previous
-	for index, step in ipairs(chain) do
-		local last = index == #chain
-		local crumb = Crumb(index)
+	for n, step in ipairs(chain) do
+		local last = n == #chain
+		local crumb = Crumb(n)
 		crumb.map = not last and step.id or nil
 		crumb.role, crumb.hover = last and shown or around, shown
 		crumb.text:SetText(step.name)
@@ -2102,11 +2102,11 @@ local function DrawTrail(map, info)
 		crumb:SetWidth(U.Measure(crumb.text, "GetStringWidth", 60))
 		crumb:EnableMouse(not last)
 		crumb:ClearAllPoints()
-		local mark = ui.crumbMarks[index]
+		local mark = ui.crumbMarks[n]
 		if previous then
 			if not mark then
 				mark = Skin.Glyph(ui.trail, "chevron", 10)
-				ui.crumbMarks[index] = mark
+				ui.crumbMarks[n] = mark
 			end
 			mark:SetVertexColor(Skin.RGB("muted"))
 			mark:ClearAllPoints()
@@ -2120,9 +2120,9 @@ local function DrawTrail(map, info)
 		crumb:Show()
 		previous = crumb
 	end
-	for index = #chain + 1, #ui.crumbs do
-		ui.crumbs[index]:Hide()
-		if ui.crumbMarks[index] then ui.crumbMarks[index]:Hide() end
+	for n = #chain + 1, #ui.crumbs do
+		ui.crumbs[n]:Hide()
+		if ui.crumbMarks[n] then ui.crumbMarks[n]:Hide() end
 	end
 	ui.mapName = ui.crumbs[#chain] and ui.crumbs[#chain].text or ui.mapName
 end
