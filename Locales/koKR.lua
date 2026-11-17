@@ -252,7 +252,6 @@ ns.LOCALES.koKR = {
 	ATLAS_KEPT = "보관됨",
 	ATLAS_ROUTE_EMPTY = "단계가 없습니다. 지도에서 Alt+클릭하여 장소를 기록하거나 이동하세요.",
 	ATLAS_CLEAR = "지우기",
-	ATLAS_UP = "이 지도 주변 지도",
 	ATLAS_GAME_MAP = "게임 지도",
 	ATLAS_GAME_MAP_DESC = "게임 자체의 지도를 엽니다.",
 	ATLAS_WALK = "걷기 모드",

@@ -252,7 +252,6 @@ ns.LOCALES.ruRU = {
 	ATLAS_KEPT = "Сохранено",
 	ATLAS_ROUTE_EMPTY = "Этапов нет. Alt+щелчок по карте, чтобы отметить место или отправиться туда.",
 	ATLAS_CLEAR = "Очистить",
-	ATLAS_UP = "Карта вокруг этой",
 	ATLAS_GAME_MAP = "Карта игры",
 	ATLAS_GAME_MAP_DESC = "Открывает карту самой игры.",
 	ATLAS_WALK = "Режим ходьбы",

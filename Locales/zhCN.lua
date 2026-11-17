@@ -252,7 +252,6 @@ ns.LOCALES.zhCN = {
 	ATLAS_KEPT = "已保留",
 	ATLAS_ROUTE_EMPTY = "没有路径点。在地图上按 Alt+点击 记录地点或前往该处。",
 	ATLAS_CLEAR = "清除",
-	ATLAS_UP = "此地图周围的地图",
 	ATLAS_GAME_MAP = "游戏地图",
 	ATLAS_GAME_MAP_DESC = "打开游戏自己的地图。",
 	ATLAS_WALK = "步行模式",

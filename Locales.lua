@@ -256,7 +256,6 @@ local LOCALES = {
 		ATLAS_KEPT = "Kept",
 		ATLAS_ROUTE_EMPTY = "No step. Alt+click on the map to note a place or go there.",
 		ATLAS_CLEAR = "Clear",
-		ATLAS_UP = "The map around this one",
 		ATLAS_GAME_MAP = "Game map",
 		ATLAS_GAME_MAP_DESC = "Opens the game's own map.",
 		ATLAS_WALK = "Walk mode",

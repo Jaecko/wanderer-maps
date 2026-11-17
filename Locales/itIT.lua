@@ -252,7 +252,6 @@ ns.LOCALES.itIT = {
 	ATLAS_KEPT = "Conservata",
 	ATLAS_ROUTE_EMPTY = "Nessuna tappa. Alt+clic sulla mappa per annotare un luogo o andarci.",
 	ATLAS_CLEAR = "Cancella",
-	ATLAS_UP = "La mappa intorno a questa",
 	ATLAS_GAME_MAP = "Mappa del gioco",
 	ATLAS_GAME_MAP_DESC = "Apre la mappa del gioco.",
 	ATLAS_WALK = "Modalità cammino",

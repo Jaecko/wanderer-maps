@@ -17,6 +17,7 @@ local Skin = W and W.Skin
 
 local WIDTH, ROWS = 520, 10
 local LOOK_EVERY = 2 -- seconds between two distances while shown
+local GAME_LINE = 8 -- (the game look: the tabs' frame from the window's top, their art standing a little over it)
 
 local window, tabs, list, here, clear, nearest, kept, sorter, removeSome, arrowButton
 local tab = "route"
@@ -151,7 +152,16 @@ local function Create()
 	Skin.Dress(window, { "CENTER", UIParent, "CENTER", 0, 40 }, "mapsPos")
 	local _, title, margin = Skin.Header(window, "Wanderer", L.TITLE, { settings = "ext:maps" })
 	tabs = Skin.Tabs(window, { { "route", L.TAB_ROUTE }, { "notes", L.TAB_NOTES } }, ShowTab)
-	tabs:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, 0)
+	-- (the game look: the heading in the game's bar, the tabs on the top line standing on the game's divider)
+	local game = Skin.GameWindows and Skin.GameWindows()
+	if game then
+		tabs:SetPoint("TOPLEFT", window, "TOPLEFT", margin, -GAME_LINE)
+		local base = Skin.Rule(window)
+		base:SetPoint("TOPLEFT", tabs, "BOTTOMLEFT", 0, 0)
+		base:SetPoint("TOPRIGHT", window, "TOPRIGHT", -margin, -(GAME_LINE + 30))
+	else
+		tabs:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, 0)
+	end
 	tabs:SetPoint("RIGHT", window, "RIGHT", -margin, 0)
 	list = Skin.Table(window, {
 		width = WIDTH - margin * 2, rows = ROWS, icon = false, nameTitle = L.COL_PLACE,
@@ -239,7 +249,9 @@ local function Create()
 			if U.UsingPad and U.UsingPad() then Skin.ShowTip(self, L.HELP_TIP_PAD .. "\n" .. L.HELP_GPS, "ANCHOR_BOTTOM") end
 		end)
 	end
-	window:SetSize(WIDTH, margin * 2 + 30 + 30 + 10 + list:GetHeight() + 12 + 28 + 30)
+	-- (above the tabs: the heading's room, or only the top line's in the game look)
+	local head = game and GAME_LINE or margin + 30
+	window:SetSize(WIDTH, margin + head + 30 + 10 + list:GetHeight() + 12 + 28 + 30)
 	window:HookScript("OnShow", function(self)
 		self:SetScale(Skin.FitScale(self))
 		tabs:Layout()

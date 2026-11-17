@@ -252,7 +252,6 @@ ns.LOCALES.ptBR = {
 	ATLAS_KEPT = "Guardada",
 	ATLAS_ROUTE_EMPTY = "Nenhuma etapa. Alt+clique no mapa para anotar um lugar ou ir até lá.",
 	ATLAS_CLEAR = "Limpar",
-	ATLAS_UP = "O mapa ao redor deste",
 	ATLAS_GAME_MAP = "Mapa do jogo",
 	ATLAS_GAME_MAP_DESC = "Abre o mapa do próprio jogo.",
 	ATLAS_WALK = "Modo caminhada",

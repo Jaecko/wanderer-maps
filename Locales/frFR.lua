@@ -252,7 +252,6 @@ ns.LOCALES.frFR = {
 	ATLAS_KEPT = "Gardée",
 	ATLAS_ROUTE_EMPTY = "Aucune étape. Alt+clic sur la carte pour noter un lieu ou y aller.",
 	ATLAS_CLEAR = "Effacer",
-	ATLAS_UP = "La carte autour de celle-ci",
 	ATLAS_GAME_MAP = "Carte du jeu",
 	ATLAS_GAME_MAP_DESC = "Ouvre la carte du jeu.",
 	ATLAS_WALK = "Mode marche",

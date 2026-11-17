@@ -252,7 +252,6 @@ ns.LOCALES.deDE = {
 	ATLAS_KEPT = "Behalten",
 	ATLAS_ROUTE_EMPTY = "Keine Etappe. Alt+Klick auf die Karte, um einen Ort zu notieren oder dorthin zu gehen.",
 	ATLAS_CLEAR = "Leeren",
-	ATLAS_UP = "Die Karte rund um diese",
 	ATLAS_GAME_MAP = "Spielkarte",
 	ATLAS_GAME_MAP_DESC = "Öffnet die Karte des Spiels.",
 	ATLAS_WALK = "Wandermodus",

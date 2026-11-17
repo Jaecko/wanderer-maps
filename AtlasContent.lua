@@ -35,7 +35,7 @@ local HOVER, CHOSEN = Skin and rawget(Skin, "HOVER") or 0.05, Skin and rawget(Sk
 local MAX_REWARDS, REWARD_SIZE = 12, 28
 local REWARD_ROOM = 7 * (REWARD_SIZE + 4) -- (more than seven: smaller, all on the line)
 local QUEST_TEXT_LINES = 9
-local HEADER_LEFT = 118 -- (the map's name, after the window's title)
+local HEADER_LEFT = 118 -- (the trail of maps, after the window's title)
 local DOT_GAP = 12
 local GRID_WIDE = 333 -- the zones' grid: cells across a map
 local ZONE_REACH, ZONE_LEVEL = 16, 0.31 -- how far a pack of creatures counts (cells), the height where a zone stops
@@ -2054,12 +2054,83 @@ end
 
 -- Building, refreshing --------------------------------------------------------------------------------------------------
 
+-- The trail: the maps around the one shown, from the widest (the world) down to it, each a click away, the one
+-- shown last, in its own color; a small chevron between two.
+local TRAIL_MOST = 6
+local function Crumb(index)
+	local crumb = ui.crumbs[index]
+	if crumb then return crumb end
+	crumb = CreateFrame("Button", nil, ui.trail)
+	crumb:SetHeight(20)
+	crumb.text = Skin.Text(crumb, "GameTooltipHeaderText", "gold")
+	crumb.text:SetPoint("LEFT")
+	if crumb.text.SetWordWrap then crumb.text:SetWordWrap(false) end
+	crumb:SetScript("OnEnter", function(self) if self.map then self.text:SetTextColor(Skin.RGB(self.hover)) end end)
+	crumb:SetScript("OnLeave", function(self) self.text:SetTextColor(Skin.RGB(self.role)) end)
+	crumb:SetScript("OnClick", function(self)
+		if not self.map then return end
+		Skin.Play("click")
+		ns.AtlasSetMap(self.map)
+	end)
+	ui.crumbs[index] = crumb
+	return crumb
+end
+
+local function DrawTrail(map, info)
+	local chain = {}
+	local id, at = map, type(info) == "table" and info or nil
+	while id and at and #chain < TRAIL_MOST do
+		table.insert(chain, 1, { id = id, name = Clean(at.name) or "?" })
+		local parent = Clean(at.parentMapID)
+		-- (up to the world: not the cosmos above it)
+		local up = parent and parent ~= 0 and Safe(C_Map.GetMapInfo, parent)
+		if not (type(up) == "table" and (Clean(up.mapType) or 0) >= 1) then break end
+		id, at = parent, up
+	end
+	-- (the game look: the maps around in gold, the one shown in white; Wanderer's: around in the label's color, shown
+	-- in gold)
+	local game = Skin.GameWindows and Skin.GameWindows()
+	local around, shown = game and "gold" or "label", game and "text" or "gold"
+	local previous
+	for index, step in ipairs(chain) do
+		local last = index == #chain
+		local crumb = Crumb(index)
+		crumb.map = not last and step.id or nil
+		crumb.role, crumb.hover = last and shown or around, shown
+		crumb.text:SetText(step.name)
+		crumb.text:SetTextColor(Skin.RGB(crumb.role))
+		crumb:SetWidth(U.Measure(crumb.text, "GetStringWidth", 60))
+		crumb:EnableMouse(not last)
+		crumb:ClearAllPoints()
+		local mark = ui.crumbMarks[index]
+		if previous then
+			if not mark then
+				mark = Skin.Glyph(ui.trail, "chevron", 10)
+				ui.crumbMarks[index] = mark
+			end
+			mark:SetVertexColor(Skin.RGB("muted"))
+			mark:ClearAllPoints()
+			mark:SetPoint("LEFT", previous, "RIGHT", 6, 0)
+			mark:Show()
+			crumb:SetPoint("LEFT", mark, "RIGHT", 6, 0)
+		else
+			if mark then mark:Hide() end
+			crumb:SetPoint("LEFT", ui.trail, "LEFT", 0, 0)
+		end
+		crumb:Show()
+		previous = crumb
+	end
+	for index = #chain + 1, #ui.crumbs do
+		ui.crumbs[index]:Hide()
+		if ui.crumbMarks[index] then ui.crumbMarks[index]:Hide() end
+	end
+	ui.mapName = ui.crumbs[#chain] and ui.crumbs[#chain].text or ui.mapName
+end
+
 function ns.AtlasDrawHeader()
 	local map = ns.AtlasMap()
 	local info = map and Safe(C_Map.GetMapInfo, map)
-	ui.mapName:SetText(type(info) == "table" and Clean(info.name) or "")
-	local parent = type(info) == "table" and Clean(info.parentMapID)
-	ui.upButton:SetShown(parent ~= nil and parent ~= 0)
+	DrawTrail(map, info)
 	ui.walkButton:SetLabel(Skin.Colorize(L.ATLAS_WALK, ns.AtlasDb().walk and "gold" or "text"))
 end
 
@@ -2117,13 +2188,14 @@ function ns.AtlasBuildContent(window, margin, top, rightWidth, strip)
 	ui = ns.AtlasUI()
 	ui.zonePool = CreateTexturePool(ui.world, "ARTWORK", 1)
 	ui.zoneLines = {}
-	-- The heading: where you are looking, one way up, the quiet actions.
-	ui.upButton = Skin.GlyphButton(window, "up", 14, L.ATLAS_UP, function() ns.AtlasUp() end)
-	-- (the game look: the place's name and the actions on one line under the game's bar, level with the cog)
+	-- The heading: where you are looking, as a trail of the maps around it (each a click away), the quiet actions.
+	-- (the game look: the trail and the actions on one line under the game's bar, level with the cog; its title in
+	-- the bar, the trail from the window's edge)
 	local gameLine = Skin.GameWindows and Skin.GameWindows()
-	ui.upButton:SetPoint("TOPLEFT", window, "TOPLEFT", margin + HEADER_LEFT, gameLine and -4 or (-margin - 8))
-	ui.mapName = Skin.Text(window, "GameTooltipHeaderText", "gold")
-	ui.mapName:SetPoint("LEFT", ui.upButton, "RIGHT", 6, 0)
+	ui.trail = CreateFrame("Frame", nil, window)
+	ui.trail:SetSize(1, 20)
+	ui.trail:SetPoint("TOPLEFT", window, "TOPLEFT", margin + (gameLine and 0 or HEADER_LEFT), gameLine and -4 or (-margin - 8))
+	ui.crumbs, ui.crumbMarks = {}, {}
 	local gameMap = Button(window, L.ATLAS_GAME_MAP, L.ATLAS_GAME_MAP_DESC, function() ns.AtlasToGameMap() end)
 	gameMap:SetPoint("TOPRIGHT", window, "TOPRIGHT", -62, gameLine and -3 or -8)
 	gameMap.padBinding = function()
