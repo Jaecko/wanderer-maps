@@ -2,12 +2,12 @@ local _, ns = ...
 local L = ns.L
 
 -- The flight under way: the way chosen at the flight master (where you take off, each stop, where you land),
--- then, while you fly, the destination's name over a slim line: where you took off and the time left under the
--- name, a small dot for each stop between, your dot moving along. (While it is shown, Wanderer's own travel card
--- leaves it the destination: the fade and the camera stay Wanderer's.) Times come from your own flights: each stretch between two stops, timed as
+-- then, while you fly and the interface has faded away, a slim line across the screen: a dot for each stop, its
+-- name over it, your dot moving along (no frame, nothing else). The interface back, the line goes. Times come
+-- from your own flights (the flight map's tooltips say them): each stretch between two stops, timed as
 -- you fly it, the last few kept for the account (the world's, not a character's), their middle one used.
--- Before, a guess from the distance (marked "~"), refined by where you are along the way. The flight map's
--- tooltips say the time too. Shown on flights only (an option, on); moved in Wanderer's placing mode.
+-- Before, a guess from the distance (marked "~"), refined by where you are along the way. Shown on flights only
+-- (an option, on); moved in Wanderer's placing mode.
 
 local W = Wanderer
 local U = W and W.Util
@@ -28,8 +28,10 @@ local BOARD_WAIT = 10 -- seconds a chosen flight waits for the take off
 local RESTORE_FOR = 1800 -- seconds: a flight taken up again after a reload
 local STEP = 0.1 -- seconds between two looks
 local GLIDE = 3 -- your dot catches up with its place (share of the gap a second)
-local WIDTH, HEIGHT, SIDE = 320, 66, 16
-local LINE_Y = -52
+local WIDTH, HEIGHT, SIDE = 320, 60, 8 -- (the least width; the line takes SHARE of the screen's)
+local SHARE = 0.9
+local LINE_Y = 14 -- (from the foot)
+local LABEL_UP, LABEL_ROW, LABEL_GAP, LABEL_MOST = 8, 16, 12, 220 -- a name over its dot, a second row, room between two, its widest
 local DOT_END, DOT_STOP, DOT_YOU = 9, 7, 12
 
 local bar, driver
@@ -280,10 +282,12 @@ local function LandEarly()
 end
 
 -- The line on the screen ----------------------------------------------------------------------------------
+-- Only a line, nothing around it: across most of the screen, a dot for each stop (where you took off and land
+-- too), each stop's name over its dot, your dot moving along. Shown while the interface has faded away (the
+-- travel's curtain, or any other way of fading it), gone as it comes back: one or the other, crossfading.
 
 local function Dot(size, layer)
-	local dot = Skin.Glyph(bar, "dot", size, layer or "ARTWORK")
-	return dot
+	return Skin.Glyph(bar, "dot", size, layer or "ARTWORK")
 end
 
 local function Paint(dot, passed)
@@ -291,32 +295,65 @@ local function Paint(dot, passed)
 	dot:SetVertexColor(c[1], c[2], c[3])
 end
 
-local function Span() return WIDTH - SIDE * 2 end
+local function Span() return math.max(1, (bar:GetWidth() or WIDTH) - SIDE * 2) end
+local function X(share) return SIDE + Span() * share end
 
--- The line laid for the flight: its ends' names, a dot for each stop where it falls.
+-- How far the interface has faded away: 0 shown, 1 gone.
+local function Away()
+	if not UIParent:IsShown() then return 1 end
+	return 1 - math.max(0, math.min(1, UIParent:GetAlpha() or 1))
+end
+
+-- A stop's name over its dot: the first from its dot rightward, the last leftward to it, the others centered.
+-- Gives the name, its left edge and its width.
+local function Label(self, index, count, x, name)
+	local label = self.labels[index]
+	if not label then
+		label = Skin.Text(self, "GameTooltipText", "text")
+		if label.SetWordWrap then label:SetWordWrap(false) end
+		self.labels[index] = label
+	end
+	label:SetWidth(0)
+	label:SetText(name)
+	local width = math.min(LABEL_MOST, U.Measure(label, "GetStringWidth", 60))
+	label:SetWidth(width)
+	local left = x - width / 2
+	if index == 1 then left = x - DOT_END / 2 elseif index == count then left = x + DOT_END / 2 - width end
+	return label, left, width
+end
+
+-- The line laid for the flight: as wide as the screen allows, a dot and a name for each stop where it falls (a
+-- name that would run into the one before it goes up a row).
 local function Lay(self)
 	if not flight then return end
 	local stops, plan = flight.stops, flight.plan
-	self.from:SetText(stops[1].name)
-	self.to:SetText(stops[#stops].name)
-	self.stops = self.stops or {}
-	for index = 2, #stops - 1 do
-		local dot = self.stops[index] or Dot(DOT_STOP)
-		self.stops[index] = dot
+	self:SetWidth(math.max(WIDTH, (UIParent:GetWidth() or 0) * SHARE / math.max(0.01, self:GetScale() or 1)))
+	self.dots, self.labels = self.dots or {}, self.labels or {}
+	local lastEnd = -math.huge
+	for index, stop in ipairs(stops) do
+		local x = X(plan.at[index])
+		local size = (index == 1 or index == #stops) and DOT_END or DOT_STOP
+		local dot = self.dots[index] or Dot(size)
+		self.dots[index] = dot
+		dot:SetSize(size, size)
 		dot:ClearAllPoints()
-		dot:SetPoint("CENTER", self, "TOPLEFT", SIDE + Span() * plan.at[index], LINE_Y)
+		dot:SetPoint("CENTER", self, "BOTTOMLEFT", x, LINE_Y)
 		dot:Show()
+		local label, left, width = Label(self, index, #stops, x, stop.name or "?")
+		local up = left < lastEnd + LABEL_GAP
+		if not up then lastEnd = left + width end
+		label:ClearAllPoints()
+		label:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", left, LINE_Y + LABEL_UP + (up and LABEL_ROW or 0))
+		label:Show()
 	end
-	for index, dot in pairs(self.stops) do
-		if index < 2 or index > #stops - 1 then dot:Hide() end
-	end
-	self.drawnTime = nil
+	for index = #stops + 1, #self.dots do self.dots[index]:Hide() end
+	for index = #stops + 1, #self.labels do self.labels[index]:Hide() end
 end
 
-local function Draw(self, elapsedFrame)
-	if not flight then return end
+-- Where the flight stands, followed whether the line is seen or not (the stops passed are learned from it).
+local function Follow(elapsedFrame)
 	local px, py, here = ns.Here()
-	local where, left, guessed = ns.FollowFlight(flight, GetTime() - flight.start, px, py, here)
+	local where = ns.FollowFlight(flight, GetTime() - flight.start, px, py, here)
 	if flight.changed then
 		flight.changed = nil
 		Keep()
@@ -326,98 +363,73 @@ local function Draw(self, elapsedFrame)
 		flight.shown = flight.shown + (where - flight.shown) * math.min(1, GLIDE * (elapsedFrame or STEP))
 		if where - flight.shown < 0.002 then flight.shown = where end
 	end
-	local x = SIDE + Span() * flight.shown
-	self.you:ClearAllPoints()
-	self.you:SetPoint("CENTER", self, "TOPLEFT", x, LINE_Y)
-	self.flown:SetWidth(math.max(1, x - SIDE))
-	for index, dot in pairs(self.stops or {}) do
-		if dot:IsShown() then Paint(dot, flight.plan.at[index] <= flight.shown + 0.001) end
-	end
-	Paint(self.landing, flight.shown >= 0.999)
-	local words = ns.Clock(left)
-	if guessed then words = "~" .. words end
-	if words ~= self.drawnTime then
-		self.drawnTime = words
-		self.time:SetText(words)
-	end
 end
 
--- The bar's tooltip (the kit's): where to, from where, the next stop, the time left (guessed: said).
-local function TipLines()
-	if not flight then return nil end
-	local stops = flight.stops
-	local px, py, here = ns.Here()
-	local _, left, guessed, nextLeft = ns.FollowFlight(flight, GetTime() - flight.start, px, py, here)
-	local lines = { stops[#stops].full or stops[#stops].name, ns.TipLine(L.FLIGHT_FROM:format(stops[1].full or stops[1].name)) }
-	local ahead = stops[flight.hop + 1]
-	if flight.hop + 1 < #stops then
-		lines[#lines + 1] = ns.TipLine(L.FLIGHT_NEXT:format(ahead.name, (guessed and "~" or "") .. ns.Clock(nextLeft)))
+local function Draw(self)
+	if not flight then return end
+	local x = X(flight.shown)
+	self.you:ClearAllPoints()
+	self.you:SetPoint("CENTER", self, "BOTTOMLEFT", x, LINE_Y)
+	self.flown:SetWidth(math.max(1, x - SIDE))
+	-- (the stops behind you in gold, their names too; those ahead quiet)
+	for index, dot in ipairs(self.dots or {}) do
+		if dot:IsShown() then
+			local passed = flight.plan.at[index] <= flight.shown + 0.001
+			Paint(dot, passed)
+			local label = self.labels[index]
+			if label then label:SetTextColor(Skin.RGB(passed and "gold" or "text")) end
+		end
 	end
-	lines[#lines + 1] = ns.TipLine(L.FLIGHT_TIME:format((guessed and "~" or "") .. ns.Clock(left)))
-	if guessed then lines[#lines + 1] = ns.TipLine(L.FLIGHT_GUESSED, "blue") end
-	return lines
 end
 
 local function Create()
-	bar = Skin.CreateWindow("WandererMapsFlight", "MEDIUM", nil, true)
+	-- (a piece of the screen with no frame at all: the line alone over the world, readable while the interface
+	-- around it fades)
+	bar = CreateFrame("Frame", "WandererMapsFlight", UIParent)
+	bar:SetFrameStrata("MEDIUM")
+	if bar.SetIgnoreParentAlpha then bar:SetIgnoreParentAlpha(true) end
+	bar.padSkip = true
+	bar:Hide()
 	bar:SetSize(WIDTH, HEIGHT)
 	bar:SetClampedToScreen(true)
-	bar:EnableMouse(true)
+	-- (never under the mouse: over it, the faded interface would come back and the line go)
+	bar:EnableMouse(false)
 	if W.Placeable then
 		W.Placeable({ key = "mapsFlight", label = function() return L.FLIGHT_LINE_PLACE end, frame = bar,
 			scale = function() return Skin.Scale() end, default = { "TOP", "TOP", 0, -236 }, enabled = Shown })
 	end
 	if not (W.PlaceApply and W.PlaceApply("mapsFlight", bar)) then bar:SetPoint("TOP", UIParent, "TOP", 0, -236) end
-	-- The destination, its title; under it, where you took off (left) and the time left (right).
-	bar.to = Skin.Text(bar, "GameFontNormalLarge", "gold")
-	bar.to:SetPoint("TOP", bar, "TOP", 0, -8)
-	bar.to:SetWidth(WIDTH - SIDE * 2)
-	bar.to:SetJustifyH("CENTER")
-	bar.from = Skin.Text(bar, "GameTooltipTextSmall", "soft")
-	bar.from:SetPoint("TOPLEFT", bar, "TOPLEFT", SIDE - 4, -32)
-	bar.from:SetWidth(Span() - 70)
-	bar.from:SetJustifyH("LEFT")
-	for _, text in ipairs({ bar.from, bar.to }) do
-		if text.SetWordWrap then text:SetWordWrap(false) end
-	end
-	bar.time = Skin.Text(bar, "GameTooltipTextSmall", "text")
-	bar.time:SetPoint("TOPRIGHT", bar, "TOPRIGHT", -(SIDE - 4), -32)
-	bar.time:SetJustifyH("RIGHT")
 	-- The line: thin, the part flown brighter.
-	local line = bar:CreateTexture(nil, "BORDER")
-	line:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.18)
-	line:SetHeight(1)
-	line:SetPoint("LEFT", bar, "TOPLEFT", SIDE, LINE_Y)
-	line:SetPoint("RIGHT", bar, "TOPRIGHT", -SIDE, LINE_Y)
+	bar.line = bar:CreateTexture(nil, "BORDER")
+	bar.line:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.35)
+	bar.line:SetHeight(1)
+	bar.line:SetPoint("LEFT", bar, "BOTTOMLEFT", SIDE, LINE_Y)
+	bar.line:SetPoint("RIGHT", bar, "BOTTOMRIGHT", -SIDE, LINE_Y)
 	bar.flown = bar:CreateTexture(nil, "ARTWORK", nil, -1)
-	bar.flown:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.6)
+	bar.flown:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.8)
 	bar.flown:SetHeight(2)
-	bar.flown:SetPoint("LEFT", bar, "TOPLEFT", SIDE, LINE_Y)
-	bar.takeoff = Dot(DOT_END)
-	bar.takeoff:SetPoint("CENTER", bar, "TOPLEFT", SIDE, LINE_Y)
-	Paint(bar.takeoff, true)
-	bar.landing = Dot(DOT_END)
-	bar.landing:SetPoint("CENTER", bar, "TOPRIGHT", -SIDE, LINE_Y)
+	bar.flown:SetPoint("LEFT", bar, "BOTTOMLEFT", SIDE, LINE_Y)
 	bar.you = Dot(DOT_YOU, "OVERLAY")
 	Paint(bar.you, true)
 	bar.Lay = Lay
-	Skin.Tooltip(bar, TipLines, "ANCHOR_BOTTOM")
 	bar:HookScript("OnShow", function(self)
 		self:SetScale(Skin.Scale())
-		Skin.FadeIn(self)
 		self:Lay()
-		Draw(self, 1)
+		Draw(self)
 	end)
 end
 
--- Shown while a flight is under way (the option on), hidden otherwise.
+-- Shown while a flight is under way (the option on) and the interface away, hidden otherwise: as the interface
+-- fades out, the line fades in, and the other way round.
 local function ShowBar()
-	if not (flight and Shown()) then
+	local away = flight and Shown() and Away() or 0
+	if away <= 0.01 then
 		if bar then bar:Hide() end
 		return
 	end
 	if not bar then Create() end
-	if bar:IsShown() then bar:Lay() else bar:Show() end
+	bar:SetAlpha(away)
+	if not bar:IsShown() then bar:Show() end
 end
 
 -- The look: a flight waited for, followed, landed.
@@ -429,7 +441,9 @@ local function Look(_, elapsed)
 	local onTaxi = Clean(Safe(UnitOnTaxi, "player"))
 	if flight then
 		if not onTaxi then return Land() end
-		if bar and bar:IsShown() then Draw(bar, frame) end
+		Follow(frame)
+		ShowBar()
+		if bar and bar:IsShown() then Draw(bar) end
 	elseif pending then
 		if onTaxi then
 			local stops = pending.stops
