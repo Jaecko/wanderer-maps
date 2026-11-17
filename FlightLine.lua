@@ -18,7 +18,8 @@ local Safe, Clean = U and U.Safe, U and U.Clean
 
 local SPEED = 32 -- yards a second, a flight's
 local WINDING = 1.12 -- a flight's way is longer than the straight line between its stops
-local UNKNOWN_HOP = 60 -- seconds guessed for a stretch whose ends are not placed
+local UNKNOWN_HOP = 60 -- seconds guessed for a stretch whose ends are not placed, nothing else known
+local MAP_YARDS = 14000 -- yards across a flight master's map, when none of the way says it
 local KEEP = 5 -- flights kept for each stretch
 local SHORTEST, LONGEST = 5, 1800 -- seconds: a stretch timed outside these is not kept
 local PASS_NEAR = 70 -- yards: a stop flown over
@@ -103,35 +104,44 @@ local function NodePlace(id)
 	return nil
 end
 
-local function Stop(slot, idOf)
+local function Stop(slot, idOf, onMap)
 	local full = slot and Clean(Safe(TaxiNodeName, slot))
 	local id = slot and idOf[slot]
 	local wx, wy, instance = NodePlace(id)
-	return { id = id, name = full and full:gsub(",.*$", "") or "?", full = full, wx = wx, wy = wy, instance = instance }
+	-- (its place on the flight master's map too: every node has one, even one the world table lacks)
+	local mx, my
+	if slot and onMap[slot] then mx, my = onMap[slot][1], onMap[slot][2]
+	elseif slot and TaxiNodePosition then mx, my = Clean(Safe(TaxiNodePosition, slot)) end
+	return { id = id, name = full and full:gsub(",.*$", "") or "?", full = full, wx = wx, wy = wy, instance = instance,
+		mx = tonumber(mx), my = tonumber(my) }
 end
 
 -- The way to a node of the flight master's map (its slot): its stops, from here to there.
 function ns.ReadFlight(slot)
-	local idOf = {}
+	local idOf, onMap = {}, {}
 	local map = Clean(Safe(GetTaxiMapID))
 	if map and C_TaxiMap and C_TaxiMap.GetAllTaxiNodes then
 		for _, node in ipairs(Safe(C_TaxiMap.GetAllTaxiNodes, map) or {}) do
 			local at, id = type(node) == "table" and Clean(node.slotIndex), type(node) == "table" and Clean(node.nodeID)
 			if at and id then idOf[at] = id end
+			local position = type(node) == "table" and node.position
+			if at and type(position) == "table" and tonumber(Clean(position.x)) then
+				onMap[at] = { tonumber(Clean(position.x)), tonumber(Clean(position.y)) }
+			end
 		end
 	end
 	local stops = {}
 	local hops = Clean(Safe(GetNumRoutes, slot)) or 0
 	if hops > 0 then
-		stops[1] = Stop(Clean(Safe(TaxiGetNodeSlot, slot, 1, true)), idOf)
-		for hop = 1, hops do stops[hop + 1] = Stop(Clean(Safe(TaxiGetNodeSlot, slot, hop, false)), idOf) end
+		stops[1] = Stop(Clean(Safe(TaxiGetNodeSlot, slot, 1, true)), idOf, onMap)
+		for hop = 1, hops do stops[hop + 1] = Stop(Clean(Safe(TaxiGetNodeSlot, slot, hop, false)), idOf, onMap) end
 	else
 		-- (the game says nothing of the way: from the node you stand at, straight)
 		local here
 		for index = 1, Clean(Safe(NumTaxiNodes)) or 0 do
 			if Clean(Safe(TaxiNodeGetType, index)) == "CURRENT" then here = index end
 		end
-		stops = { Stop(here, idOf), Stop(slot, idOf) }
+		stops = { Stop(here, idOf, onMap), Stop(slot, idOf, onMap) }
 	end
 	return stops
 end
@@ -141,21 +151,56 @@ local function Distance(a, b)
 	return math.sqrt((a.wx - b.wx) ^ 2 + (a.wy - b.wy) ^ 2)
 end
 
+-- A stretch's length on the flight master's map, in that map's own units (nil when an end has no place there).
+local function MapLength(a, b)
+	if not (a.mx and b.mx and a.my and b.my) then return nil end
+	return math.sqrt((a.mx - b.mx) ^ 2 + (a.my - b.my) ^ 2)
+end
+
 -- A flight's plan from its stops: each stretch { seconds, learned }, where each stop falls along the line
--- (0 to 1), the whole time, and whether some of it is guessed.
-function ns.FlightPlan(stops)
-	local hops, at, total, guessed = {}, { 0 }, 0, false
-	for index = 1, #stops - 1 do
+-- (0 to 1), the whole time, and whether some of it is guessed. Each stop stands where its time puts it: the
+-- stretches flown before by their real time; the others by their length, at the pace the stretches known on
+-- this way were flown (the usual pace without any), their length from the world's places, else from the flight
+-- master's map at the scale the rest of the way gives it. flown (optional): the stretches timed on this very
+-- flight, by their index, worth more than any guess.
+function ns.FlightPlan(stops, flown)
+	local count = #stops - 1
+	local learned, world, onMap = {}, {}, {}
+	local worldSum, mapSum = 0, 0
+	for index = 1, count do
 		local a, b = stops[index], stops[index + 1]
-		local seconds = ns.HopSeconds(a.id, b.id)
-		local learned = seconds ~= nil
-		if not learned then
-			local length = Distance(a, b)
-			seconds = length and length * WINDING / SPEED or UNKNOWN_HOP
-			guessed = true
+		learned[index] = (flown and flown[index]) or ns.HopSeconds(a.id, b.id)
+		world[index], onMap[index] = Distance(a, b), MapLength(a, b)
+		if world[index] and onMap[index] and onMap[index] > 0 then
+			worldSum, mapSum = worldSum + world[index], mapSum + onMap[index]
 		end
-		hops[index] = { seconds = math.max(1, seconds), learned = learned }
-		total = total + hops[index].seconds
+	end
+	local yardsPerUnit = mapSum > 0 and worldSum / mapSum or MAP_YARDS
+	local length = {}
+	for index = 1, count do
+		length[index] = world[index] or (onMap[index] and onMap[index] * yardsPerUnit) or nil
+	end
+	-- (the pace of this way: its stretches already flown, by their length; else a flight's usual speed)
+	local timeSum, lengthSum = 0, 0
+	for index = 1, count do
+		if learned[index] and length[index] and length[index] > 0 then
+			timeSum, lengthSum = timeSum + learned[index], lengthSum + length[index]
+		end
+	end
+	local perYard = lengthSum > 0 and timeSum / lengthSum or WINDING / SPEED
+	local hops, total, guessed, known, knownCount = {}, 0, false, 0, 0
+	for index = 1, count do
+		local seconds = learned[index] or (length[index] and length[index] * perYard) or nil
+		hops[index] = { seconds = seconds, learned = learned[index] ~= nil }
+		if seconds then known, knownCount = known + seconds, knownCount + 1 end
+		if not learned[index] then guessed = true end
+	end
+	-- (a stretch with nothing known of it: as long as the others on average)
+	local average = knownCount > 0 and known / knownCount or UNKNOWN_HOP
+	local at = { 0 }
+	for _, hop in ipairs(hops) do
+		hop.seconds = math.max(1, hop.seconds or average)
+		total = total + hop.seconds
 	end
 	local sum = 0
 	for index, hop in ipairs(hops) do
@@ -357,6 +402,17 @@ local function Follow(elapsedFrame)
 	if flight.changed then
 		flight.changed = nil
 		Keep()
+		-- A stop passed: the stretches timed on this flight place the stops ahead again, at the pace you really
+		-- fly; your dot on the stop just passed.
+		local flown = {}
+		for index = 1, #flight.stops - 1 do
+			local a, b = flight.passed[index], flight.passed[index + 1]
+			if a and b and b > a then flown[index] = b - a end
+		end
+		flight.plan = ns.FlightPlan(flight.stops, flown)
+		flight.shown = flight.plan.at[flight.hop] or flight.shown
+		if bar and bar:IsShown() then bar:Lay() end
+		return
 	end
 	-- (never backwards; it glides to its place)
 	if where > flight.shown then
@@ -395,10 +451,10 @@ local function Create()
 	-- (never under the mouse: over it, the faded interface would come back and the line go)
 	bar:EnableMouse(false)
 	if W.Placeable then
-		W.Placeable({ key = "mapsFlight", label = function() return L.FLIGHT_LINE_PLACE end, frame = bar,
-			scale = function() return Skin.Scale() end, default = { "TOP", "TOP", 0, -236 }, enabled = Shown })
+		W.Placeable({ key = "mapsFlightLine", label = function() return L.FLIGHT_LINE_PLACE end, frame = bar,
+			scale = function() return Skin.Scale() end, default = { "BOTTOM", "BOTTOM", 0, 70 }, enabled = Shown })
 	end
-	if not (W.PlaceApply and W.PlaceApply("mapsFlight", bar)) then bar:SetPoint("TOP", UIParent, "TOP", 0, -236) end
+	if not (W.PlaceApply and W.PlaceApply("mapsFlightLine", bar)) then bar:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 70) end
 	-- The line: thin, the part flown brighter.
 	bar.line = bar:CreateTexture(nil, "BORDER")
 	bar.line:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.35)
