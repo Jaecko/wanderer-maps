@@ -1283,7 +1283,22 @@ local function WatchBox(row, idOf)
 end
 
 -- A quest row's look: the quest chosen (its sheet beside) in a gold tint with a thin gold line on its left.
+-- (the game look: the game's own chosen and hover pictures, its own edge with them; no ground at rest, as its lists)
+local function GameLook() return Skin.GameWindows and Skin.GameWindows() end
+-- (the panel's small title: in capitals, or written as it is in the game look, as the game's small gold titles)
+local function Kick(words) return GameLook() and words or U.Upper(words) end
 local function Paint(row, hover)
+	if GameLook() then
+		if row.selected then
+			Skin.ChosenTint(row.ground)
+		elseif hover then
+			Skin.HoverTint(row.ground)
+		end
+		row.ground:SetShown((row.selected or hover) and true or false)
+		if row.line then row.line:Hide() end
+		return
+	end
+	row.ground:Show()
 	if row.selected then
 		row.ground:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], CHOSEN + (hover and HOVER or 0))
 	else
@@ -1375,7 +1390,7 @@ end
 local function DrawOverview()
 	local map = ns.AtlasMap()
 	if HabitatHere() then
-		ui.kicker:SetText(U.Upper(L.ATLAS_HABITAT))
+		ui.kicker:SetText(Kick(L.ATLAS_HABITAT))
 		ui.placeTitle:SetText(habitat.title or "")
 		ui.placeTitle:SetTextColor(Skin.COLORS.bad[1], Skin.COLORS.bad[2], Skin.COLORS.bad[3])
 		ui.about:SetText(L.ATLAS_HABITAT_ABOUT)
@@ -1383,7 +1398,7 @@ local function DrawOverview()
 		return
 	end
 	local info = map and Safe(C_Map.GetMapInfo, map)
-	ui.kicker:SetText(U.Upper(L.ATLAS_ON_THIS_MAP))
+	ui.kicker:SetText(Kick(L.ATLAS_ON_THIS_MAP))
 	ui.placeTitle:SetText(type(info) == "table" and Clean(info.name) or "")
 	ui.placeTitle:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
 	ui.about:SetText(map and not Far(map) and ns.ZoneFacts(map) or "")
@@ -1551,13 +1566,23 @@ function DrawJournal()
 			if entry and entry.id then row.watch:Refresh() end
 			row.selected = entry ~= nil and entry.id ~= nil and entry.id == ChosenQuest()
 			row.line:SetShown(row.selected)
-			if entry and entry.header then
+			if entry and entry.header and GameLook() then
+				-- (the game look: a zone's title as the game's own quest log heads its zones, its band and gold words)
+				row.icon:Hide()
+				row.line:Hide()
+				row.ground:SetShown(Skin.GameAtlas(row.ground, "common-button-list-collapseExpand"))
+				row.text:SetFontObject(Skin.FontFor("GameFontNormal"))
+				row.text:SetText(entry.header or "")
+				row.text:SetTextColor(Skin.RGB("gold"))
+				row.count:SetText("")
+			elseif entry and entry.header then
 				row.icon:Hide()
 				row.ground:SetColorTexture(1, 1, 1, 0)
 				row.text:SetText(Skin.Colorize(U.Upper(entry.header or ""), "kicker"))
 				row.text:SetTextColor(1, 1, 1)
 				row.count:SetText("")
 			elseif entry then
+				if GameLook() then row.text:SetFontObject(Skin.FontFor("GameTooltipTextSmall")) end
 				local done = QuestDone(entry.id)
 				row.icon:Show()
 				row.icon:SetTexture(done and COMPLETE_ICON or OBJECTIVE_ICON)
@@ -1730,7 +1755,7 @@ end
 local function DrawChosen()
 	local data = chosen
 	ui.backButton:Show()
-	ui.kicker:SetText(U.Upper(L["ATLAS_KIND_" .. data.kind:upper()] or ""))
+	ui.kicker:SetText(Kick(L["ATLAS_KIND_" .. data.kind:upper()] or ""))
 	ui.placeTitle:SetText(data.title or "")
 	ui.placeTitle:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
 	local place = data.place
@@ -1929,7 +1954,8 @@ local function BuildLayers(side)
 	band:EnableMouse(true)
 	local ground = band:CreateTexture(nil, "BACKGROUND")
 	ground:SetAllPoints()
-	ground:SetColorTexture(0.05, 0.08, 0.13, 0.82)
+	-- (the game look: a plain dark band, without Wanderer's blue ink)
+	if GameLook() then ground:SetColorTexture(0, 0, 0, 0.75) else ground:SetColorTexture(0.05, 0.08, 0.13, 0.82) end
 	ui.legend = band
 	ui.layers = {}
 	for at, layer in ipairs(LAYERS) do

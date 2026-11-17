@@ -512,7 +512,12 @@ local function Create()
 	local ground = clip:CreateTexture(nil, "BACKGROUND", nil, -8)
 	ground:SetAllPoints()
 	ground:SetColorTexture(0.04, 0.07, 0.11, 1)
-	Skin.Edges(clip, GOLD[1], GOLD[2], GOLD[3], 0.16)
+	-- (the game look: a quiet grey edge around the map, no golden one)
+	if Skin.GameWindows and Skin.GameWindows() then
+		Skin.Edges(clip, Skin.RGB("muted", 0.3))
+	else
+		Skin.Edges(clip, GOLD[1], GOLD[2], GOLD[3], 0.16)
+	end
 	ui.world = CreateFrame("Frame", nil, clip)
 	ui.world:SetSize(1, 1)
 	ui.overlay = CreateFrame("Frame", nil, clip)
