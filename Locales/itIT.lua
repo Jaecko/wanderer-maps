@@ -312,4 +312,5 @@ ns.LOCALES.itIT = {
 	ROW_KEYS_NOTE = "Ctrl+clic: al percorso. Maiusc+clic: un link della mappa in chat.",
 	SEARCH_NOTHING = "Nessun risultato.",
 	ABANDON_ITEMS = "I suoi oggetti saranno distrutti: %s.",
+	PINS_FIGHT = "Le tue note e il tuo percorso tornano dopo lo scontro.",
 }

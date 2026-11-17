@@ -312,4 +312,5 @@ ns.LOCALES.frFR = {
 	ROW_KEYS_NOTE = "Ctrl+clic : au trajet. Maj+clic : un lien de carte dans la discussion.",
 	SEARCH_NOTHING = "Rien trouvé.",
 	ABANDON_ITEMS = "Ses objets seront détruits : %s.",
+	PINS_FIGHT = "Vos notes et votre route reviennent après le combat.",
 }

@@ -316,6 +316,7 @@ local LOCALES = {
 		ROW_KEYS_NOTE = "Ctrl+click: to the route. Shift+click: a map link in the chat.",
 		SEARCH_NOTHING = "Nothing found.",
 		ABANDON_ITEMS = "Its items will be destroyed: %s.",
+		PINS_FIGHT = "Your notes and your route return once the fight is over.",
 	},
 }
 ns.LOCALES = LOCALES

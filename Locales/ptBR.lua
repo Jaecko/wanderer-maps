@@ -312,4 +312,5 @@ ns.LOCALES.ptBR = {
 	ROW_KEYS_NOTE = "Ctrl+clique: para a rota. Shift+clique: um link de mapa no chat.",
 	SEARCH_NOTHING = "Nada encontrado.",
 	ABANDON_ITEMS = "Os itens dela serão destruídos: %s.",
+	PINS_FIGHT = "Suas notas e sua rota voltam depois do combate.",
 }

@@ -312,4 +312,5 @@ ns.LOCALES.esES = {
 	ROW_KEYS_NOTE = "Ctrl+clic: a la ruta. Mayús+clic: un enlace de mapa en el chat.",
 	SEARCH_NOTHING = "No se encontró nada.",
 	ABANDON_ITEMS = "Sus objetos serán destruidos: %s.",
+	PINS_FIGHT = "Tus notas y tu ruta vuelven tras el combate.",
 }

@@ -312,4 +312,5 @@ ns.LOCALES.zhCN = {
 	ROW_KEYS_NOTE = "Ctrl+点击：加入路线。Shift+点击：在聊天中插入地图链接。",
 	SEARCH_NOTHING = "什么也没找到。",
 	ABANDON_ITEMS = "它的物品将被摧毁：%s。",
+	PINS_FIGHT = "你的笔记和路线将在战斗结束后回来。",
 }

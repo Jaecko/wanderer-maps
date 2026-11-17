@@ -2067,6 +2067,8 @@ ns.AtlasDrawStrip = DrawStrip
 -- The trail: the maps around the one shown, from the widest (the world) down to it, each a click away, the one
 -- shown last, in its own color; a small chevron between two.
 local TRAIL_MOST = 6
+local TRAIL_GAP = 22 -- (between two crumbs: the chevron and its spaces)
+local TRAIL_CUT = "..."
 local function Crumb(n)
 	local crumb = ui.crumbs[n]
 	if crumb then return crumb end
@@ -2096,6 +2098,33 @@ local function DrawTrail(map, info)
 		local up = parent and parent ~= 0 and Safe(C_Map.GetMapInfo, parent)
 		if not (type(up) == "table" and (Clean(up.mapType) or 0) >= 1) then break end
 		id, at = parent, up
+	end
+	-- (the room up to the header's buttons: the widest maps give way from the left, the one shown and its nearest
+	-- kept; the cut start an ellipsis, still a click to the widest map)
+	local room = ui.TrailRoom and ui.TrailRoom()
+	if room and #chain > 1 then
+		local function Wide(name)
+			local probe = Crumb(1).text
+			probe:SetText(name)
+			return U.Measure(probe, "GetStringWidth", 60)
+		end
+		local widths, total = {}, -TRAIL_GAP
+		for n, step in ipairs(chain) do
+			widths[n] = Wide(step.name)
+			total = total + widths[n] + TRAIL_GAP
+		end
+		if total > room then
+			local widest = chain[1].id
+			local ellipsis = Wide(TRAIL_CUT) + TRAIL_GAP
+			local first = 1
+			while first < #chain and total + ellipsis > room do
+				total = total - widths[first] - TRAIL_GAP
+				first = first + 1
+			end
+			local kept = { { id = widest, name = TRAIL_CUT } }
+			for n = first, #chain do kept[#kept + 1] = chain[n] end
+			chain = kept
+		end
 	end
 	-- (the game look: the maps around in gold, the one shown in white; Wanderer's: around in the label's color, shown
 	-- in gold)
@@ -2216,6 +2245,16 @@ function ns.AtlasBuildContent(window, margin, top, rightWidth, strip)
 	ui.walkButton:SetPoint("RIGHT", gameMap, "LEFT", -6, 0)
 	local routes = Button(window, L.ATLAS_ROUTE_WINDOW, L.ATLAS_ROUTE_WINDOW_DESC, function() ns.Toggle() end)
 	routes:SetPoint("RIGHT", ui.walkButton, "LEFT", -6, 0)
+	-- (the trail's room: from its start to the buttons, a little air kept; the window resized, drawn again)
+	local trailLeft = margin + (gameLine and 0 or HEADER_LEFT)
+	function ui.TrailRoom()
+		local wide = U.Measure(window, "GetWidth", nil)
+		if not wide then return nil end
+		local buttons = 62 + 6 + 6
+		for _, button in ipairs({ gameMap, ui.walkButton, routes }) do buttons = buttons + (U.Measure(button, "GetWidth", 0) or 0) end
+		return wide - trailLeft - buttons - 12
+	end
+	window:HookScript("OnSizeChanged", function() if ns.AtlasMap and ns.AtlasMap() then ns.AtlasDrawHeader() end end)
 
 	-- Over the map: one search at the top, the legend along the bottom (what lets the clicks through to the map).
 	-- (the window's, over the map: what the controller's cross reaches, the map itself left out of it)

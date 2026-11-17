@@ -312,4 +312,5 @@ ns.LOCALES.deDE = {
 	ROW_KEYS_NOTE = "Strg+Klick: zur Route. Umschalt+Klick: ein Kartenlink im Chat.",
 	SEARCH_NOTHING = "Nichts gefunden.",
 	ABANDON_ITEMS = "Ihre Gegenstände werden zerstört: %s.",
+	PINS_FIGHT = "Deine Notizen und deine Route kehren nach dem Kampf zurück.",
 }

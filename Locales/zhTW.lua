@@ -312,4 +312,5 @@ ns.LOCALES.zhTW = {
 	ROW_KEYS_NOTE = "Ctrl+點擊：加入路線。Shift+點擊：在聊天中插入地圖連結。",
 	SEARCH_NOTHING = "什麼也沒找到。",
 	ABANDON_ITEMS = "它的物品將被摧毀：%s。",
+	PINS_FIGHT = "你的筆記與路線將在戰鬥結束後回來。",
 }

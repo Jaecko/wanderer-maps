@@ -320,6 +320,54 @@ function ns.RefreshMapButton()
 	mapButton:SetShown(wanted and true or false)
 end
 
+-- The fight's line on the world map: the notes and the route leave it while in a fight (the map engine can't take
+-- them then); a short line says they come back after it. Shown while in a fight with the map open, Wanderer Maps
+-- on and something to show. Made once at login, never while the map is open; it takes no click (nothing for the
+-- controller to reach).
+local fightLine
+
+local function RefreshFightLine(fighting)
+	if not fightLine then return end
+	if fighting == nil then fighting = InCombatLockdown() or Clean(Safe(UnitAffectingCombat, "player")) end
+	local settings = ns.Settings()
+	local route = ns.Route and ns.Route()
+	local some = ns.Notes()[1] ~= nil or (route and route.steps and route.steps[1] ~= nil)
+	-- (only once the map engine has let them go: a map opened before the fight keeps them)
+	local wanted = settings and settings.enabled and some and fighting and ns.pinsHeld and WorldMapFrame:IsShown()
+	fightLine:SetShown(wanted and true or false)
+end
+
+local function CreateFightLine()
+	if fightLine or not WorldMapFrame then return end
+	local holder = type(WorldMapFrame.ScrollContainer) == "table" and WorldMapFrame.ScrollContainer or WorldMapFrame
+	fightLine = CreateFrame("Frame", nil, WorldMapFrame)
+	if fightLine.EnableMouse then fightLine:EnableMouse(false) end
+	-- (under the notes' button, in that same corner)
+	fightLine:SetPoint("TOPLEFT", holder, "TOPLEFT", 44, -34)
+	fightLine:SetFrameStrata(WorldMapFrame:GetFrameStrata())
+	fightLine:SetFrameLevel(math.min(9000, (holder:GetFrameLevel() or 1) + 1500))
+	local back = fightLine:CreateTexture(nil, "BACKGROUND")
+	back:SetAllPoints()
+	back:SetColorTexture(0, 0, 0, 0.55)
+	local text = Skin.Text(fightLine, "GameFontHighlightSmall", "soft")
+	text:SetPoint("LEFT", fightLine, "LEFT", 8, 0)
+	if text.SetWordWrap then text:SetWordWrap(false) end
+	text:SetText(L.PINS_FIGHT)
+	fightLine:SetSize(math.ceil(U.Measure(text, "GetStringWidth", 300) + 16), 20)
+	fightLine:Hide()
+	local events = CreateFrame("Frame")
+	events:RegisterEvent("PLAYER_REGEN_DISABLED")
+	events:RegisterEvent("PLAYER_REGEN_ENABLED")
+	events:SetScript("OnEvent", function(_, event)
+		-- (read from the event: the lockdown's own flag turns a moment after it; the fight over, the map's next
+		-- look draws them again)
+		if event == "PLAYER_REGEN_ENABLED" then ns.pinsHeld = nil end
+		RefreshFightLine(event == "PLAYER_REGEN_DISABLED")
+	end)
+	WorldMapFrame:HookScript("OnShow", function() RefreshFightLine() end)
+	WorldMapFrame:HookScript("OnHide", function() fightLine:Hide() end)
+end
+
 -- The provider ----------------------------------------------------------------------------------------------
 
 local provider
@@ -333,7 +381,12 @@ local function Provider()
 	end
 	function provider:RefreshAllData()
 		self:RemoveAllData()
-		if InCombatLockdown() then return U.AfterFight("pins", ns.RefreshPins) end
+		if InCombatLockdown() then
+			ns.pinsHeld = true
+			RefreshFightLine(true)
+			return U.AfterFight("pins", ns.RefreshPins)
+		end
+		ns.pinsHeld = nil
 		ns.RefreshMapButton()
 		local settings = ns.Settings()
 		if not (settings and settings.enabled) then return end
@@ -385,6 +438,7 @@ function ns.InitPins()
 	if not WorldMapFrame then return end
 	Provider()
 	CreateMapButton()
+	CreateFightLine()
 	WorldMapFrame:AddCanvasClickHandler(OnCanvasClick, 100)
 	ns.OnChanged(ns.RefreshPins)
 end

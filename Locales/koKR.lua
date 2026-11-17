@@ -312,4 +312,5 @@ ns.LOCALES.koKR = {
 	ROW_KEYS_NOTE = "Ctrl+클릭: 경로에 추가. Shift+클릭: 대화창에 지도 링크.",
 	SEARCH_NOTHING = "찾은 것이 없습니다.",
 	ABANDON_ITEMS = "퀘스트 아이템이 파괴됩니다: %s.",
+	PINS_FIGHT = "전투가 끝나면 메모와 경로가 다시 나타납니다.",
 }
