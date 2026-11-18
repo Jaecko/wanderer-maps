@@ -473,8 +473,22 @@ local function Create()
 	bar:HookScript("OnShow", function(self)
 		self:SetScale(Skin.Scale())
 		self:Lay()
+		self.laidFor = (UIParent:GetWidth() or 0) .. ":" .. Skin.Scale()
 		Draw(self)
 	end)
+end
+
+-- Laid again while shown when the screen, the interface scale or the line's own scale changes (it was laid only
+-- as it appeared). force: from the game's events, laid whatever it was laid for.
+local function Refit(force)
+	if not (bar and bar:IsShown() and flight) then return end
+	local scale = Skin.Scale()
+	local key = (UIParent:GetWidth() or 0) .. ":" .. scale
+	if not force and bar.laidFor == key then return end
+	bar.laidFor = key
+	if bar:GetScale() ~= scale then bar:SetScale(scale) end
+	bar:Lay()
+	Draw(bar)
 end
 
 -- Shown while a flight is under way (the option on) and the interface away, hidden otherwise: as the interface
@@ -501,6 +515,7 @@ local function Look(_, elapsed)
 		if not onTaxi then return Land() end
 		Follow(frame)
 		ShowBar()
+		Refit()
 		if bar and bar:IsShown() then Draw(bar) end
 	elseif pending then
 		if onTaxi then
@@ -588,7 +603,8 @@ function ns.InitFlightLine()
 	HookFlightMap()
 	local events = CreateFrame("Frame")
 	-- (the flight map loaded later: heard until it is hooked, then no more)
-	for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_CONTROL_LOST", not mapHooked and "ADDON_LOADED" or nil }) do
+	for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_CONTROL_LOST", "DISPLAY_SIZE_CHANGED", "UI_SCALE_CHANGED",
+		not mapHooked and "ADDON_LOADED" or nil }) do
 		pcall(events.RegisterEvent, events, event)
 	end
 	events:SetScript("OnEvent", function(self, event, name)
@@ -597,6 +613,8 @@ function ns.InitFlightLine()
 			if mapHooked then self:UnregisterEvent("ADDON_LOADED") end
 		elseif event == "PLAYER_ENTERING_WORLD" then
 			Resume()
+		elseif event == "DISPLAY_SIZE_CHANGED" or event == "UI_SCALE_CHANGED" then
+			Refit(true)
 		elseif pending then
 			Wake()
 		end

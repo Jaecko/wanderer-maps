@@ -2077,8 +2077,20 @@ local function Crumb(n)
 	crumb.text = Skin.Text(crumb, "GameTooltipHeaderText", "gold")
 	crumb.text:SetPoint("LEFT")
 	if crumb.text.SetWordWrap then crumb.text:SetWordWrap(false) end
-	crumb:SetScript("OnEnter", function(self) if self.map then self.text:SetTextColor(Skin.RGB(self.hover)) end end)
-	crumb:SetScript("OnLeave", function(self) self.text:SetTextColor(Skin.RGB(self.role)) end)
+	crumb:SetScript("OnEnter", function(self)
+		if self.map then self.text:SetTextColor(Skin.RGB(self.hover)) end
+		-- (a name cut short for the room: the whole of it under the mouse)
+		local cut = self.full and (not self.text.IsTruncated or self.text:IsTruncated())
+		if cut then
+			GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+			GameTooltip:SetText(self.full, Skin.RGB(self.role))
+			GameTooltip:Show()
+		end
+	end)
+	crumb:SetScript("OnLeave", function(self)
+		self.text:SetTextColor(Skin.RGB(self.role))
+		if GameTooltip:GetOwner() == self then GameTooltip:Hide() end
+	end)
 	crumb:SetScript("OnClick", function(self)
 		if not self.map then return end
 		Skin.Play("click")
@@ -2105,6 +2117,7 @@ local function DrawTrail(map, info)
 	if room and #chain > 1 then
 		local function Wide(name)
 			local probe = Crumb(1).text
+			probe:SetWidth(0)
 			probe:SetText(name)
 			return U.Measure(probe, "GetStringWidth", 60)
 		end
@@ -2131,15 +2144,27 @@ local function DrawTrail(map, info)
 	local game = Skin.GameWindows and Skin.GameWindows()
 	local around, shown = game and "gold" or "label", game and "text" or "gold"
 	local previous
+	local before = 0 -- (the width taken by the crumbs and chevrons before this one)
 	for n, step in ipairs(chain) do
 		local last = n == #chain
 		local crumb = Crumb(n)
 		crumb.map = not last and step.id or nil
 		crumb.role, crumb.hover = last and shown or around, shown
+		crumb.text:SetWidth(0)
 		crumb.text:SetText(step.name)
 		crumb.text:SetTextColor(Skin.RGB(crumb.role))
-		crumb:SetWidth(U.Measure(crumb.text, "GetStringWidth", 60))
-		crumb:EnableMouse(not last)
+		local width = U.Measure(crumb.text, "GetStringWidth", 60)
+		-- (the map shown, too long even alone: the room left, its name cut by the game with "...", whole on hover;
+		-- never a stop on a controller's way, as before)
+		crumb.full, crumb.padIgnored = nil, nil
+		if last and room and before + width > room then
+			width = math.max(20, room - before)
+			crumb.text:SetWidth(width)
+			crumb.full, crumb.padIgnored = step.name, true
+		end
+		crumb:SetWidth(width)
+		before = before + width + TRAIL_GAP
+		crumb:EnableMouse(not last or crumb.full ~= nil)
 		crumb:ClearAllPoints()
 		local mark = ui.crumbMarks[n]
 		if previous then
