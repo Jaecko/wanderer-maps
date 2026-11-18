@@ -385,6 +385,8 @@ local function Lay(self)
 		dot:SetPoint("CENTER", self, "BOTTOMLEFT", x, LINE_Y)
 		dot:Show()
 		local label, left, width = Label(self, index, #stops, x, stop.name or "?")
+		-- (a stop close to an end: its name kept within the line, never off the screen)
+		left = math.max(0, math.min(left, (self:GetWidth() or WIDTH) - width))
 		local up = left < lastEnd + LABEL_GAP
 		if not up then lastEnd = left + width end
 		label:ClearAllPoints()
