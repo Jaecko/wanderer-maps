@@ -1,3 +1,8 @@
+# Wanderer Maps 1.3.57
+
+### Fixed
+- The flight line goes on past a stop the way only flies by (Ironforge on the way from Stormwind): it no longer waits there.
+
 # Wanderer Maps 1.3.56
 
 ### Fixed

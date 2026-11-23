@@ -24,6 +24,7 @@ local KEEP = 5 -- flights kept for each stretch
 local SHORTEST, LONGEST = 5, 1800 -- seconds: a stretch timed outside these is not kept
 local PASS_NEAR = 70 -- yards: a stop flown over
 local PASS_AWAY = 15 -- yards beyond the closest: the stop is behind
+local PASS_BEYOND = 0.03 -- share of the next stretch flown: a stop never come close to is behind
 local GUESS_FROM = 0.12 -- share of a stretch flown before its time is guessed from your pace
 local BOARD_WAIT = 10 -- seconds a chosen flight waits for the take off
 local RESTORE_FOR = 1800 -- seconds: a flight taken up again after a reload
@@ -236,6 +237,19 @@ local function Board(stops, elapsed, kept)
 	Keep()
 end
 
+-- You against a stretch's straight line (a to b): how far along it (0 at a, 1 at b, beyond either end too), and
+-- how far from it (yards to its closest point; nil when an end has no place).
+local function Along(px, py, a, b)
+	if not (a.wx and b.wx) then return 0, nil end
+	local dx, dy = b.wx - a.wx, b.wy - a.wy
+	local length = dx * dx + dy * dy
+	if length <= 0 then return 0, math.sqrt((px - a.wx) ^ 2 + (py - a.wy) ^ 2) end
+	local share = ((px - a.wx) * dx + (py - a.wy) * dy) / length
+	local clamped = math.max(0, math.min(1, share))
+	local cx, cy = a.wx + dx * clamped, a.wy + dy * clamped
+	return share, math.sqrt((px - cx) ^ 2 + (py - cy) ^ 2)
+end
+
 -- Where the flight stands now (elapsed seconds, your place): the share of the line flown, the seconds left,
 -- whether they are guessed, the seconds to the next stop. Passing a stop moves the flight to its next stretch.
 function ns.FollowFlight(state, elapsed, px, py, here)
@@ -254,6 +268,19 @@ function ns.FollowFlight(state, elapsed, px, py, here)
 				state.passed[hop + 1] = state.near.at
 				state.hop, state.hopStart, state.near = hop + 1, state.near.at, nil
 				state.changed = true
+			end
+			-- A stop the way goes by without coming close (its flight master deep in a city, Ironforge's): behind
+			-- you once you are along the next stretch and nearer its line than this one's.
+			local after = stops[hop + 2]
+			if state.hop == hop and after and after.wx and after.instance == ahead.instance then
+				local beyond, toNext = Along(px, py, ahead, after)
+				local _, toThis = Along(px, py, stops[hop], ahead)
+				if beyond > PASS_BEYOND and toThis and toNext <= toThis then
+					local at = state.near and state.near.at or elapsed
+					state.passed[hop + 1] = at
+					state.hop, state.hopStart, state.near = hop + 1, at, nil
+					state.changed = true
+				end
 			end
 		else
 			-- (your place or the stop's unknown: the stops passed by the plan's time, never learned)
