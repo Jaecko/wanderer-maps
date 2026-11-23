@@ -2016,6 +2016,110 @@ local function Short(words, most)
 	return words
 end
 
+-- A step dragged along the route: taken with the left button held, it follows the mouse (a copy of its chip), a
+-- gold mark shows where it would go between two steps, it is put there when let go. The step itself fades in its
+-- place meanwhile; dropped where it was, or the mouse let go off the route, nothing moves.
+local dragging -- { row, from, target, ghost }
+local DRAG_MARK_GAP = 2.5 -- (half the room between two chips: the mark stands in it)
+
+-- The steps shown, in order (those the strip holds now).
+local function ShownRows()
+	local rows = {}
+	for _, row in ipairs(ui.stepRows or {}) do
+		if row:IsShown() and row.index then rows[#rows + 1] = row end
+	end
+	return rows
+end
+
+-- Where the dragged step would go: its new index, and the mark's place (x in the strip, from its left), nil off
+-- the route.
+local function DropPlace()
+	if not dragging then return nil end
+	local rows = ShownRows()
+	if not rows[1] then return nil end
+	local scale = ui.strip:GetEffectiveScale()
+	local cx, cy = GetCursorPosition()
+	cx, cy = cx / scale, cy / scale
+	local bottom, top = ui.strip:GetBottom(), ui.strip:GetTop()
+	-- (well above or below the route: let go there, nothing moves)
+	if not (bottom and top) or cy < bottom - 30 or cy > top + 30 then return nil end
+	local before = #rows + 1
+	for at, row in ipairs(rows) do
+		local left, right = row:GetLeft(), row:GetRight()
+		if left and right and cx < (left + right) / 2 then
+			before = at
+			break
+		end
+	end
+	local beforeIndex = rows[before] and rows[before].index or rows[#rows].index + 1
+	local target = beforeIndex > dragging.from and beforeIndex - 1 or beforeIndex
+	local stripLeft = ui.strip:GetLeft() or 0
+	local x
+	if rows[before] then x = (rows[before]:GetLeft() or 0) - DRAG_MARK_GAP else x = (rows[#rows]:GetRight() or 0) + DRAG_MARK_GAP end
+	return target, x - stripLeft
+end
+
+local function DragUpdate()
+	if not dragging then return end
+	local scale = UIParent:GetEffectiveScale()
+	local cx, cy = GetCursorPosition()
+	dragging.ghost:ClearAllPoints()
+	dragging.ghost:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx / scale, cy / scale + 4)
+	local target, x = DropPlace()
+	dragging.target = target
+	-- (no mark where the step would stay where it is)
+	local moves = target ~= nil and target ~= dragging.from
+	ui.dropMark:SetShown(moves)
+	if moves then
+		ui.dropMark:ClearAllPoints()
+		ui.dropMark:SetPoint("CENTER", ui.strip, "LEFT", x, 0)
+	end
+end
+
+local function DragStart(row)
+	if dragging or not row.index then return end
+	if not ui.dropMark then
+		ui.dropMark = ui.strip:CreateTexture(nil, "OVERLAY")
+		local c = Skin.COLORS.gold
+		ui.dropMark:SetColorTexture(c[1], c[2], c[3], 1)
+		ui.dropMark:SetSize(2, 30)
+	end
+	if not ui.dragGhost then
+		ui.dragGhost = Skin.SmallButton(UIParent, "", nil, nil, 26)
+		ui.dragGhost:SetFrameStrata("TOOLTIP")
+		ui.dragGhost:EnableMouse(false)
+		ui.dragGhost:SetAlpha(0.85)
+	end
+	ui.dragGhost:SetLabel(row.label or "")
+	ui.dragGhost:Show()
+	dragging = { row = row, from = row.index, ghost = ui.dragGhost }
+	row:SetAlpha(0.3)
+	if row.LockHighlight then row:LockHighlight() end
+	GameTooltip:Hide()
+	Skin.Play("click")
+	ui.strip:SetScript("OnUpdate", DragUpdate)
+	DragUpdate()
+end
+
+local function DragStop()
+	if not dragging then return end
+	local drag = dragging
+	dragging = nil
+	ui.strip:SetScript("OnUpdate", nil)
+	drag.ghost:Hide()
+	ui.dropMark:Hide()
+	if drag.row.UnlockHighlight then drag.row:UnlockHighlight() end
+	-- (the click the button would send as the mouse comes up: not a click, the end of a drag)
+	drag.row.draggedAt = GetTime()
+	if drag.target and drag.target ~= drag.from and ns.MoveStepTo(drag.from, drag.target) then
+		Skin.Play("confirm")
+	end
+	ns.AtlasDrawStrip()
+end
+ns.AtlasDragStep = DragStart -- (tests)
+ns.AtlasDropStep = DragStop
+ns.AtlasDropPlace = DropPlace
+
 local function DrawStrip()
 	local route = ns.Route()
 	ui.stepRows = ui.stepRows or {}
@@ -2032,9 +2136,15 @@ local function DrawStrip()
 		local row = ui.stepRows[slot]
 		if step and not row then
 			row = Skin.SmallButton(ui.strip, "", function(self, button)
+				-- (the mouse let go at the end of a drag: no click)
+				if self.draggedAt and GetTime() - self.draggedAt < 0.3 then return end
 				if button == "RightButton" then return ns.RemoveStep(self.index) end
 				ns.AtlasShow(self.step.map, self.step.x, self.step.y)
 			end, function() return UsingPad() and L.ATLAS_STEP_TIP_PAD or L.ATLAS_STEP_TIP end, 26)
+			row:RegisterForDrag("LeftButton")
+			row:SetScript("OnDragStart", DragStart)
+			row:SetScript("OnDragStop", DragStop)
+			row:HookScript("OnHide", function() if dragging and dragging.row == row then DragStop() end end)
 			row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 			row.padRight, row.padRightWord = true, L.PAD_REMOVE -- (the top button: its right click, the step taken off)
 			ui.stepRows[slot] = row
@@ -2042,7 +2152,8 @@ local function DrawStrip()
 		if row then
 			if step then
 				row.step, row.index = step, at
-				row:SetLabel((at == route.current and Skin.Colorize(at, "gold") or at) .. "  " .. Short(step.title, 22))
+				row.label = (at == route.current and Skin.Colorize(at, "gold") or at) .. "  " .. Short(step.title, 22)
+				row:SetLabel(row.label)
 				room = room - (row:GetWidth() or 0) - (previous and 5 or 0)
 			end
 			local fits = step ~= nil and room >= 0

@@ -585,6 +585,24 @@ function ns.MoveStep(index, by)
 	ns.Changed()
 end
 
+-- A step taken from its place and put at another (dragged along the atlas' route): the others close up, the one
+-- followed stays followed wherever it now stands. True when it moved.
+function ns.MoveStepTo(from, to)
+	local route = ns.Route()
+	local steps = route.steps
+	to = math.max(1, math.min(tonumber(to) or 0, #steps))
+	if not steps[from] or from == to then return false end
+	local followed = steps[route.current]
+	local step = table.remove(steps, from)
+	table.insert(steps, to, step)
+	for index, each in ipairs(steps) do
+		if each == followed then route.current = index end
+	end
+	ns.PlanLegs()
+	ns.Changed()
+	return true
+end
+
 function ns.RemoveStep(index)
 	local route = ns.Route()
 	if not route.steps[index] then return end

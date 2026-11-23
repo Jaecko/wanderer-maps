@@ -1,3 +1,8 @@
+# Wanderer Maps 1.3.58
+
+### Changed
+- The atlas route: a step is dragged along the route to change its place, a gold mark showing where it will go.
+
 # Wanderer Maps 1.3.57
 
 ### Fixed
